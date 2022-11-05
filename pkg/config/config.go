@@ -12,18 +12,20 @@ import (
 )
 
 type Config struct {
-	Runtime         string `json:"runtime" env:"RUNTIME"`
+	Runtime         string `json:"runtime" env:"RUNTIME" validate:"nonzero"`
 	DeviceName      string `json:"deviceName" env:"DEVICE_NAME"`
 	ShortDeviceName string `json:"shortDeviceName"`
 	DeviceIP        string `json:"deviceIP" env:"DEVICE_IP"`
-	ServicePort     string `json:"servicePort" env:"SERVICE_PORT"`
-	KubeletPort     string `json:"kubeletPort" env:"KUBELET_PORT"`
+	ServicePort     int    `json:"servicePort" env:"SERVICE_PORT" validate:"nonzero"`
+	KubeletPort     int    `json:"kubeletPort" env:"KUBELET_PORT" validate:"nonzero"`
 	VKubeServiceURL string `json:"vKubeServiceURL" env:"VKUBE_URL"`
 	UseKubeAPI      bool   `json:"useKubeAPI"`
 	FledgeAPIPort   int    `json:"fledgeAPIPort"`
 	IgnoreKubeProxy string `json:"ignoreKubeProxy" env:"IGNORE_KPROXY"`
 	Interface       string `json:"interface" env:"INET_INTERFACE"`
 	HeartbeatTime   int    `json:"heartbeatTime" env:"HEARTBEAT_TIME" validate:"min=1"`
+	// Features
+	EnableMetrics bool `json:"metrics" env:"METRICS"`
 }
 
 func Load(filename string) *Config {

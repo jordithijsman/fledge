@@ -1,0 +1,7 @@
+{
+  "runtime": "containerd",
+  "deviceName": "test",
+  "servicePort": 8100,
+  "kubeletPort": 8101,
+  "heartbeatTime": 15
+}

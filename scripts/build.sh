@@ -9,7 +9,7 @@ export CGO_ENABLED=0
 export GOOS=linux
 for GOARCH in arm64 amd64; do
   # Build statically linked binary
-  dir="./out/${GOOS}/${GOARCH}/"
+  dir="./out/${GOOS}/${GOARCH}"
   # Compile debug version
   go build -o "${dir}/fledge.debug" "./cmd/fledge"
   # Strip binary and compile statically

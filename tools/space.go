@@ -3,12 +3,11 @@ package main
 import (
 	"debug/elf"
 	"fmt"
+	"github.com/go-delve/delve/pkg/proc"
 	"os"
 	"runtime"
 	"sort"
 	"strings"
-
-	"github.com/go-delve/delve/pkg/proc"
 )
 
 func main() {
