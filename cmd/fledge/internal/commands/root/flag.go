@@ -15,9 +15,7 @@
 package root
 
 import (
-	"flag"
 	"fmt"
-	"k8s.io/klog/v2"
 	"os"
 	"strings"
 
@@ -100,12 +98,12 @@ func installFlags(flags *pflag.FlagSet, c *Opts) {
 	flags.DurationVar(&c.StreamCreationTimeout, "stream-creation-timeout", c.StreamCreationTimeout,
 		"stream-creation-timeout is the maximum time for streaming connection, default 30s.")
 
-	flagset := flag.NewFlagSet("klog", flag.PanicOnError)
-	klog.InitFlags(flagset)
-	flagset.VisitAll(func(f *flag.Flag) {
-		f.Name = "klog." + f.Name
-		flags.AddGoFlag(f)
-	})
+	// flagset := flag.NewFlagSet("klog", flag.PanicOnError)
+	// klog.InitFlags(flagset)
+	// flagset.VisitAll(func(f *flag.Flag) {
+	// 	 f.Name = "klog." + f.Name
+	//	 flags.AddGoFlag(f)
+	// })
 }
 
 func getEnv(key, defaultValue string) string {

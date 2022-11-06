@@ -25,16 +25,20 @@ type Config struct {
 	IgnoreKubeProxy string `json:"ignoreKubeProxy" env:"IGNORE_KPROXY"`
 	Interface       string `json:"interface" env:"INET_INTERFACE"`
 	HeartbeatTime   int    `json:"heartbeatTime" env:"HEARTBEAT_TIME" validate:"min=1"`
+	// API server options
+	CertPath   string `json:"certPath" env:"CERT_PATH" validate:"nonzero"`
+	KeyPath    string `json:"keyPath" env:"KEY_PATH" validate:"nonzero"`
+	CACertPath string `json:"caCertPath" env:"CA_CERT_PATH" validate:"nonzero"`
 	// Features
 	EnableMetrics bool `json:"metrics" env:"METRICS"`
 }
 
-func LoadConfig(ctx context.Context, filename string) *Config {
-	log.G(ctx).Debugf("Loading config from %s..\n", filename)
+func LoadConfig(ctx context.Context, path string) (*Config, error) {
+	log.G(ctx).Debugf("Loading config from %s..\n", path)
 	cfg := &Config{}
 
 	// Open file
-	file, err := os.Open(filename)
+	file, err := os.Open(path)
 	defer file.Close()
 
 	// Fallback to an empty json if the file does not exist
@@ -42,15 +46,15 @@ func LoadConfig(ctx context.Context, filename string) *Config {
 	if err == nil {
 		reader = file
 	} else if os.IsNotExist(err) {
-		log.G(ctx).Debugf("'%s' does not exist\n", filename)
+		log.G(ctx).Debugf("'%s' does not exist\n", path)
 		reader = strings.NewReader("{}")
 	} else if err != nil {
-		log.G(ctx).Fatal(err)
+		return nil, err
 	}
 
 	// Parse file as JSON
 	if err = json.NewDecoder(reader).Decode(&cfg); err != nil {
-		log.G(ctx).Fatal(err)
+		return nil, err
 	}
 
 	// Override config with env vars
@@ -64,7 +68,7 @@ func LoadConfig(ctx context.Context, filename string) *Config {
 				if vf.Kind() == reflect.Int {
 					intVal, err := strconv.Atoi(val)
 					if err != nil {
-						log.G(ctx).Fatal(err)
+						return nil, err
 					}
 					vf.SetInt(int64(intVal))
 				} else if vf.Kind() == reflect.String {
@@ -75,8 +79,8 @@ func LoadConfig(ctx context.Context, filename string) *Config {
 	}
 	// Validate configuration
 	if err := validator.Validate(cfg); err != nil {
-		log.G(ctx).Fatalf("Config is invalid (%s)", err)
+		return nil, err
 	}
-	log.G(ctx).Infof("Config is valid %+v\n", cfg)
-	return cfg
+	log.G(ctx).Debugf("Config is valid %+v\n", cfg)
+	return cfg, nil
 }

@@ -181,7 +181,7 @@ func setAuth(node string, apiCfg *apiServerConfig) nodeutil.NodeOpt {
 	}
 
 	return func(cfg *nodeutil.NodeConfig) error {
-		auth, err := nodeutil.WebhookAuth(cfg.Client, node, func(cfg *nodeutil.WebhookAuthConfig) error {
+		auth, err := WebhookAuth(cfg.Client, node, func(cfg *nodeutil.WebhookAuthConfig) error {
 			var err error
 			cfg.AuthnConfig.ClientCertificateCAContentProvider, err = dynamiccertificates.NewDynamicCAContentFromFile("ca-cert-bundle", apiCfg.CACertPath)
 			return err

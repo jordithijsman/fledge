@@ -2,7 +2,11 @@ package main
 
 import (
 	"context"
-	"flag"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -14,14 +18,6 @@ import (
 	"gitlab.ilabt.imec.be/fledge/service/cmd/fledge/internal/commands/root"
 	"gitlab.ilabt.imec.be/fledge/service/cmd/fledge/internal/commands/version"
 	"gitlab.ilabt.imec.be/fledge/service/cmd/fledge/internal/provider"
-	"gitlab.ilabt.imec.be/fledge/service/pkg/config"
-	"gitlab.ilabt.imec.be/fledge/service/pkg/util"
-	"os"
-	"os/signal"
-	"path/filepath"
-	"runtime"
-	"strings"
-	"syscall"
 )
 
 var (
@@ -42,39 +38,9 @@ func main() {
 	log.L = logruslogger.FromLogrus(logrus.NewEntry(logrus.StandardLogger()))
 	trace.T = opencensus.Adapter{}
 
-	/* Part specific to FLEDGE */
-	// Parse arguments
-	cfgFilename := flag.String("config", "default.json", "<config>")
-	enableDebug := flag.Bool("debug", false, "<debug>")
-	flag.Parse()
-
-	if *enableDebug {
-		logrus.SetLevel(logrus.DebugLevel)
-	}
-
-	// Load config file
-	cfg := config.LoadConfig(ctx, *cfgFilename)
-
-	// Configure the appropriate runtime
-	switch cfg.Runtime {
-	case "containerd":
-		// cri := (&vkube.ContainerdRuntimeInterface{}).Init()
-	default:
-		log.G(ctx).Fatalf("Container runtime '%s' is not supported\n", cfg.Runtime)
-	}
-
-	// Populate kubelet options
 	var opts root.Opts
-	opts.NodeName = cfg.DeviceName
-	opts.OperatingSystem = runtime.GOOS
-	opts.Provider = "containerd"
-	opts.PodSyncWorkers = runtime.NumCPU()
-	opts.EnableNodeLease = true
-	k8sVersion, _ := util.ReadDepVersion("k8s.io/api")
-	opts.Version = strings.Join([]string{k8sVersion, "fledge", buildVersion}, "-")
-
-	/* Boilerplate from https://github.com/virtual-kubelet/virtual-kubelet/blob/master/cmd/virtual-kubelet/main.go */
 	optsErr := root.SetDefaultOpts(&opts)
+	// opts.Version = strings.Join([]string{k8sVersion, "vk", buildVersion}, "-")
 
 	s := provider.NewStore()
 	registerMock(s)
@@ -106,6 +72,9 @@ func main() {
 		}
 		return nil
 	}
+
+	// Apply patch
+	patchCmd(ctx, rootCmd, opts)
 
 	if err := rootCmd.Execute(); err != nil && errors.Cause(err) != context.Canceled {
 		log.G(ctx).Fatal(err)
