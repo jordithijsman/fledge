@@ -1,10 +1,11 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
+	"github.com/virtual-kubelet/virtual-kubelet/log"
 	"gopkg.in/validator.v2"
 	"io"
-	"k8s.io/klog/v2"
 	"os"
 	"reflect"
 	"strconv"
@@ -28,8 +29,8 @@ type Config struct {
 	EnableMetrics bool `json:"metrics" env:"METRICS"`
 }
 
-func Load(filename string) *Config {
-	klog.V(1).Infof("Loading config from %s..\n", filename)
+func LoadConfig(ctx context.Context, filename string) *Config {
+	log.G(ctx).Debugf("Loading config from %s..\n", filename)
 	cfg := &Config{}
 
 	// Open file
@@ -41,15 +42,15 @@ func Load(filename string) *Config {
 	if err == nil {
 		reader = file
 	} else if os.IsNotExist(err) {
-		klog.V(1).Infof("'%s' does not exist\n", filename)
+		log.G(ctx).Debugf("'%s' does not exist\n", filename)
 		reader = strings.NewReader("{}")
 	} else if err != nil {
-		klog.Fatalln(err)
+		log.G(ctx).Fatal(err)
 	}
 
 	// Parse file as JSON
 	if err = json.NewDecoder(reader).Decode(&cfg); err != nil {
-		klog.Fatalln(err)
+		log.G(ctx).Fatal(err)
 	}
 
 	// Override config with env vars
@@ -63,7 +64,7 @@ func Load(filename string) *Config {
 				if vf.Kind() == reflect.Int {
 					intVal, err := strconv.Atoi(val)
 					if err != nil {
-						klog.Fatalln(err)
+						log.G(ctx).Fatal(err)
 					}
 					vf.SetInt(int64(intVal))
 				} else if vf.Kind() == reflect.String {
@@ -74,8 +75,8 @@ func Load(filename string) *Config {
 	}
 	// Validate configuration
 	if err := validator.Validate(cfg); err != nil {
-		klog.Fatalf("Config is invalid (%s)", err)
+		log.G(ctx).Fatalf("Config is invalid (%s)", err)
 	}
-	klog.Infof("Config is valid %+v\n", cfg)
+	log.G(ctx).Infof("Config is valid %+v\n", cfg)
 	return cfg
 }

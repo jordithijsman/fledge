@@ -4,6 +4,11 @@
 cd "$(dirname "$(go env GOMOD)")" || { echo "error: can't enter module directory"; exit 1; }
 set -e
 
+# Get version flags
+build_version="-X 'main.buildVersion=$(git describe --tags --always --dirty="-dev")'"
+build_time="-X 'main.buildTime=$(date -u '+%Y-%m-%d-%H:%M UTC')'"
+build_flags="$build_version $build_time"
+
 # Build for multiple architectures
 export CGO_ENABLED=0
 export GOOS=linux
@@ -11,7 +16,7 @@ for GOARCH in arm64 amd64; do
   # Build statically linked binary
   dir="./out/${GOOS}/${GOARCH}"
   # Compile debug version
-  go build -o "${dir}/fledge.debug" "./cmd/fledge"
+  go build -o "${dir}/fledge.debug" -ldflags="${build_flags}" "./cmd/fledge"
   # Strip binary and compile statically
-  go build -o "${dir}/fledge" -ldflags="-s -w -extldflags=-static" "./cmd/fledge"
+  go build -o "${dir}/fledge" -ldflags="-s -w -extldflags=-static ${build_flags}" "./cmd/fledge"
 done
