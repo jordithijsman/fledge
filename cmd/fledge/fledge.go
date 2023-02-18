@@ -7,16 +7,18 @@ import (
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
 	"gitlab.ilabt.imec.be/fledge/service/cmd/fledge/internal/commands/root"
+	"gitlab.ilabt.imec.be/fledge/service/cmd/fledge/internal/provider"
 	"gitlab.ilabt.imec.be/fledge/service/pkg/config"
 	"gitlab.ilabt.imec.be/fledge/service/pkg/util"
 	"os"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 )
 
 // / Patch virtual-kubelet without modifying the sources too much
-func patchCmd(ctx context.Context, rootCmd *cobra.Command, c root.Opts) {
+func patchCmd(ctx context.Context, rootCmd *cobra.Command, s *provider.Store, c root.Opts) {
 	var configPath string
 	rootCmd.PersistentFlags().StringVar(&configPath, "config-path", "default.json", "set the config path")
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
@@ -30,9 +32,9 @@ func patchCmd(ctx context.Context, rootCmd *cobra.Command, c root.Opts) {
 			// Configure the appropriate runtime
 			switch cfg.Runtime {
 			case "containerd":
-				// cri := (&vkube.ContainerdRuntimeInterface{}).Init()
+				// cri := (&fledge.ContainerdRuntimeInterface{}).Init()
 			default:
-				return errors.New(fmt.Sprintf("container runtime '%s' is not supported\n", cfg.Runtime))
+				return errors.New(fmt.Sprintf("runtime '%s' is not supported\n", cfg.Runtime))
 			}
 		}
 		return nil
@@ -44,11 +46,13 @@ func patchOpts(cfg *config.Config, cmd *cobra.Command, c root.Opts) {
 	patchOpt(cmd.Flags(), "nodename", cfg.DeviceName)
 	patchOpt(cmd.Flags(), "os", runtime.GOOS)
 	patchOpt(cmd.Flags(), "provider", cfg.Runtime)
+	patchOpt(cmd.Flags(), "provider-config", cfg.RuntimeConfig)
 	patchOpt(cmd.Flags(), "pod-sync-workers", strconv.FormatInt(int64(runtime.NumCPU()), 10))
 	patchOpt(cmd.Flags(), "enable-node-lease", strconv.FormatBool(true))
 
-	// Set kubernets version
+	// Set kubernetes version
 	k8sVersion, _ := util.ReadDepVersion("k8s.io/api")
+	k8sVersion = regexp.MustCompile("^v0").ReplaceAllString(k8sVersion, "v1")
 	c.Version = strings.Join([]string{k8sVersion, "fledge", buildVersion}, "-")
 
 	// Populate apiserver options

@@ -1,10 +1,12 @@
 {
   "runtime": "containerd",
+  "runtimeConfig": "containerd.json",
   "deviceName": "test",
   "servicePort": 8100,
   "kubeletPort": 8101,
   "heartbeatTime": 15,
   "certPath": "cert.pem",
   "keyPath": "key.pem",
-  "caCertPath": "ca.crt"
+  "caCertPath": "ca.crt",
+  "providerConfig": "provider.json"
 }

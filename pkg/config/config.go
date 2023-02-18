@@ -14,6 +14,7 @@ import (
 
 type Config struct {
 	Runtime         string `json:"runtime" env:"RUNTIME" validate:"nonzero"`
+	RuntimeConfig   string `json:"runtimeConfig" env:"RUNTIME_CONFIG" validate:"nonzero"`
 	DeviceName      string `json:"deviceName" env:"DEVICE_NAME"`
 	ShortDeviceName string `json:"shortDeviceName"`
 	DeviceIP        string `json:"deviceIP" env:"DEVICE_IP"`

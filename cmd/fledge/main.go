@@ -44,6 +44,7 @@ func main() {
 
 	s := provider.NewStore()
 	registerMock(s)
+	registerBroker(s) // FLEDGE
 
 	rootCmd := root.NewCommand(ctx, filepath.Base(os.Args[0]), s, opts)
 	rootCmd.AddCommand(version.NewCommand(buildVersion, buildTime), providers.NewCommand(s))
@@ -73,8 +74,7 @@ func main() {
 		return nil
 	}
 
-	// Apply patch
-	patchCmd(ctx, rootCmd, opts)
+	patchCmd(ctx, rootCmd, s, opts) // FLEDGE
 
 	if err := rootCmd.Execute(); err != nil && errors.Cause(err) != context.Canceled {
 		log.G(ctx).Fatal(err)
