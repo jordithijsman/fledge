@@ -1,27 +1,33 @@
 package stats
 
 import (
+	"fmt"
 	"gitlab.ilabt.imec.be/fledge/service/pkg/util"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"strings"
 )
 
 func StorageSize() (resource.Quantity, error) {
-	// TODO: Detect which disk is used for storage and use that folder
-	storSize, _ := util.ExecShellCommand("findmnt / --output=SIZE --noheadings --raw")
-	return resource.ParseQuantity(strings.TrimSpace(storSize))
+	return storageQuantity("SIZE")
 }
 
 func StorageUsed() (resource.Quantity, error) {
-	// TODO: Detect which disk is used for storage and use that folder
-	storUsed, _ := util.ExecShellCommand("findmnt / --output=USED --noheadings --raw")
-	return resource.ParseQuantity(strings.TrimSpace(storUsed))
+	return storageQuantity("USED")
 }
 
 func StorageAvailable() (resource.Quantity, error) {
+	return storageQuantity("AVAIL")
+}
+
+func storageQuantity(field string) (resource.Quantity, error) {
 	// TODO: Detect which disk is used for storage
-	storAvailable, _ := util.ExecShellCommand("findmnt / --output=AVAIL --noheadings --raw")
-	return resource.ParseQuantity(strings.TrimSpace(storAvailable))
+	// Read storage information with findmnt
+	command := fmt.Sprintf("findmnt / --output=%s --noheadings --raw --bytes", field)
+	stdout, err := util.ExecShellCommand(command)
+	if err != nil {
+		return resource.Quantity{}, err
+	}
+	// Parse the quantity from the value
+	return resource.ParseQuantity(util.RemoveSpace(stdout))
 }
 
 func IsStoragePressure() bool {

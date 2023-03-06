@@ -274,8 +274,8 @@ func (p *BrokerProvider) ConfigureNode(ctx context.Context, n *v1.Node) { //noli
 	ctx, span := trace.StartSpan(ctx, "mock.ConfigureNode") //nolint:staticcheck,ineffassign
 	defer span.End()
 
-	n.Status.Capacity = p.capacity(ctx)
-	n.Status.Allocatable = p.capacity(ctx)
+	n.Status.Capacity = p.capacity()
+	n.Status.Allocatable = p.capacity()
 	n.Status.Conditions = p.nodeConditions()
 	n.Status.Addresses = p.nodeAddresses()
 	n.Status.DaemonEndpoints = p.nodeDaemonEndpoints()
@@ -296,7 +296,7 @@ func (p *BrokerProvider) ConfigureNode(ctx context.Context, n *v1.Node) { //noli
 }
 
 // Capacity returns a resource list containing the capacity limits.
-func (p *BrokerProvider) capacity(ctx context.Context) v1.ResourceList {
+func (p *BrokerProvider) capacity() v1.ResourceList {
 	// Get pods to parse
 	pods, _ := p.runtime.GetPods()
 
@@ -334,8 +334,6 @@ func (p *BrokerProvider) capacity(ctx context.Context) v1.ResourceList {
 	resources[v1.ResourceRequestsMemory] = *requests.Memory()
 	resources[v1.ResourceRequestsStorage] = *requests.Storage()
 	resources[v1.ResourceRequestsEphemeralStorage] = *requests.StorageEphemeral()
-
-	log.G(ctx).Fatal(resources)
 
 	return resources
 }
