@@ -1,8 +1,8 @@
 package fledge
 
 import (
-	"fledge/fledge-integrated/config"
 	"fmt"
+	"github.com/virtual-kubelet/virtual-kubelet/node/api"
 	"io"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,24 +12,23 @@ import (
 )
 
 var reInsideWhtsp = regexp.MustCompile(`\s+`)
-var Cri ContainerRuntimeInterface
 var StartTime time.Time
 
-type ContainerRuntimeInterface interface {
-	Init() ContainerRuntimeInterface
+type Runtime interface {
+	// Init() Runtime
 	GetContainerName(namespace string, pod v1.Pod, dc v1.Container) string
 	GetContainerNameAlt(namespace string, podName string, dcName string) string
-	DeployPod(pod *v1.Pod)
-	DeployContainer(namespace string, pod *v1.Pod, dc *v1.Container) (string, error)
+	CreatePod(pod *v1.Pod) error
+	CreateContainer(namespace string, pod *v1.Pod, dc *v1.Container) (string, error)
 	//UpdatePostCreationPodStatus(pod *v1.Pod)
-	UpdatePod(pod *v1.Pod)
+	UpdatePod(pod *v1.Pod) error
 	//UpdateContainer(namespace string, pod *v1.Pod, dc *v1.Container)
-	DeletePod(pod *v1.Pod)
-	GetPod(namespace string, name string) (*v1.Pod, bool)
-	GetPods() []*v1.Pod
+	DeletePod(pod *v1.Pod) error
+	GetPod(namespace string, name string) (*v1.Pod, error)
+	GetPods() ([]*v1.Pod, error)
 	//StopContainer(namespace string, pod *v1.Pod, dc *v1.Container) bool
 	//UpdatePodStatus(namespace string, pod *v1.Pod)
-	FetchContainerLogs(namespace string, podName string, containerName string, tail string, timestamps bool) *io.ReadCloser
+	GetContainerLogs(namespace string, podName string, containerName string, opts api.ContainerLogOpts) (io.ReadCloser, error)
 	ShutdownPods()
 	PodsChanged() bool
 	ResetFlags()
@@ -151,7 +150,7 @@ func UpdateInitPodStatus(pod *v1.Pod, noErrors bool, allContainersDone bool) {
 }
 
 func UpdatePostCreationPodStatus(pod *v1.Pod, initContainers bool) {
-	pod.Status.HostIP = config.Cfg.DeviceIP
+	// TODO: pod.Status.HostIP = config.Cfg.DeviceIP
 
 	time := metav1.Now()
 	pod.Status.StartTime = &time

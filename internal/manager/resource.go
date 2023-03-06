@@ -42,6 +42,11 @@ func NewResourceManager(podLister corev1listers.PodLister, secretLister corev1li
 	return &rm, nil
 }
 
+// GetPod retrieves the specified pod from Kubernetes.
+func (rm *ResourceManager) GetPod(name, namespace string) (*v1.Pod, error) {
+	return rm.podLister.Pods(namespace).Get(name)
+}
+
 // GetPods returns a list of all known pods assigned to this virtual node.
 func (rm *ResourceManager) GetPods() []*v1.Pod {
 	l, err := rm.podLister.List(labels.Everything())

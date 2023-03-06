@@ -3,7 +3,7 @@ package main
 import (
 	"gitlab.ilabt.imec.be/fledge/service/cmd/fledge/internal/provider"
 	"gitlab.ilabt.imec.be/fledge/service/cmd/fledge/internal/provider/mock"
-	"gitlab.ilabt.imec.be/fledge/service/pkg/broker"
+	provider2 "gitlab.ilabt.imec.be/fledge/service/pkg/fledge"
 )
 
 func registerMock(s *provider.Store) {
@@ -21,7 +21,7 @@ func registerMock(s *provider.Store) {
 
 func registerBroker(s *provider.Store) {
 	s.Register("broker", func(cfg provider.InitConfig) (provider.Provider, error) {
-		return broker.NewBrokerProvider(
+		return provider2.NewBrokerProvider(
 			cfg.ConfigPath,
 			cfg.NodeName,
 			cfg.OperatingSystem,

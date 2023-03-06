@@ -3,8 +3,9 @@ package fledge
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"github.com/pkg/errors"
+	"github.com/virtual-kubelet/virtual-kubelet/node/api"
 	"gitlab.ilabt.imec.be/fledge/service/pkg/util"
 	"time"
 
@@ -15,7 +16,6 @@ import (
 	"io"
 	"strings"
 
-	"github.com/containerd/containerd/contrib/nvidia"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
 	specs "github.com/opencontainers/runtime-spec/specs-go"
@@ -30,7 +30,9 @@ type PodContainer struct {
 	task      containerd.Task
 }
 
-type ContainerdRuntimeInterface struct {
+type ContainerdRuntime struct {
+	config BrokerConfig
+
 	client                   *containerd.Client
 	containerNameTaskMapping map[string]PodContainer
 	podSpecs                 map[string]*v1.Pod
@@ -38,80 +40,82 @@ type ContainerdRuntimeInterface struct {
 	podsChanged              bool
 }
 
-func (cdri *ContainerdRuntimeInterface) PodsChanged() bool {
-	return cdri.podsChanged
-}
-
-func (cdri *ContainerdRuntimeInterface) ResetFlags() {
-	fmt.Println("Setting podsChanged false")
-	cdri.podsChanged = false
-}
-
-func (cdri *ContainerdRuntimeInterface) Init() ContainerRuntimeInterface {
-	//log.GetLogger(cdri.ctx).Logger.Level = logrus.DebugLevel
-
-	cdri.ctx = namespaces.WithNamespace(context.Background(), "default")
-
-	cdri.podSpecs = make(map[string]*v1.Pod)
-	cdri.containerNameTaskMapping = make(map[string]PodContainer)
-	cdri.client, _ = containerd.New("/run/containerd/containerd.sock")
-	if cdri.client == nil {
+func NewContainerdRuntime(cfg BrokerConfig) (*ContainerdRuntime, error) {
+	client, _ := containerd.New("/run/containerd/containerd.sock")
+	if client == nil {
 		fmt.Println("Failed to create containerd client!")
+	}
+
+	cr := &ContainerdRuntime{
+		config:                   cfg,
+		client:                   client,
+		containerNameTaskMapping: make(map[string]PodContainer),
+		podSpecs:                 make(map[string]*v1.Pod),
+		ctx:                      namespaces.WithNamespace(context.Background(), "default"),
+		podsChanged:              false,
 	}
 
 	mount.SetTempMountLocation("/ctdtmp")
 
-	go func() {
-		cdri.PollLoop()
-	}()
+	go func() { cr.PollLoop() }()
 
-	return cdri
+	return cr, nil
 }
 
-func (dri *ContainerdRuntimeInterface) PollLoop() {
+func (cr *ContainerdRuntime) PodsChanged() bool {
+	return cr.podsChanged
+}
+
+func (cr *ContainerdRuntime) ResetFlags() {
+	fmt.Println("Setting podsChanged false")
+	cr.podsChanged = false
+}
+
+func (cr *ContainerdRuntime) PollLoop() {
 	for {
-		for _, pod := range dri.podSpecs {
-			dri.UpdatePodStatus(pod.ObjectMeta.Namespace, pod)
+		for _, pod := range cr.podSpecs {
+			cr.UpdatePodStatus(pod.ObjectMeta.Namespace, pod)
 		}
 
 		time.Sleep(3000 * time.Millisecond)
 	}
 }
 
-func (cdri *ContainerdRuntimeInterface) GetPod(namespace string, name string) (*v1.Pod, bool) {
-	pod, found := cdri.podSpecs[namespace+"_"+name]
-	return pod, found
+func (cr *ContainerdRuntime) GetPod(namespace string, name string) (*v1.Pod, error) {
+	pod, found := cr.podSpecs[namespace+"_"+name]
+	if !found {
+		return nil, errors.New("Pod not found")
+	}
+	return pod, nil
 }
 
-func (cdri *ContainerdRuntimeInterface) GetPods() []*v1.Pod {
-	pods := []*v1.Pod{}
-
-	for _, pod := range cdri.podSpecs {
+func (cr *ContainerdRuntime) GetPods() ([]*v1.Pod, error) {
+	var pods []*v1.Pod
+	for _, pod := range cr.podSpecs {
 		pods = append(pods, pod)
 	}
-
-	return pods
+	return pods, nil
 }
 
-func (dri *ContainerdRuntimeInterface) GetContainerName(namespace string, pod v1.Pod, dc v1.Container) string {
+func (cr *ContainerdRuntime) GetContainerName(namespace string, pod v1.Pod, dc v1.Container) string {
 	return namespace + "_" + pod.ObjectMeta.Name + "_" + dc.Name
 }
 
-func (dri *ContainerdRuntimeInterface) GetContainerNameAlt(namespace string, podName string, dcName string) string {
+func (cr *ContainerdRuntime) GetContainerNameAlt(namespace string, podName string, dcName string) string {
 	return namespace + "_" + podName + "_" + dcName
 }
 
-func (dri *ContainerdRuntimeInterface) DeployPod(pod *v1.Pod) {
+func (cr *ContainerdRuntime) CreatePod(pod *v1.Pod) error {
 	namespace := pod.ObjectMeta.Namespace
 
-	dri.podSpecs[namespace+"_"+pod.ObjectMeta.Name] = pod
+	cr.podSpecs[namespace+"_"+pod.ObjectMeta.Name] = pod
 
-	if config.Cfg.IgnoreKubeProxy == "true" && strings.HasPrefix(pod.ObjectMeta.Name, "kube-proxy") {
+	/* TODO: if config.Cfg.IgnoreKubeProxy == "true" && strings.HasPrefix(pod.ObjectMeta.Name, "kube-proxy") {
 		IgnoreKubeProxy(pod)
 		return
-	}
+	}*/
 
-	CreateVolumes(dri.ctx, pod)
+	CreateVolumes(cr.ctx, pod)
 
 	initContainers := false
 	var containers []v1.Container
@@ -122,16 +126,18 @@ func (dri *ContainerdRuntimeInterface) DeployPod(pod *v1.Pod) {
 		containers = pod.Spec.Containers
 	}
 	for _, cont := range containers {
-		_, err := dri.DeployContainer(namespace, pod, &cont)
+		_, err := cr.CreateContainer(namespace, pod, &cont)
 		if err != nil {
-			delete(dri.podSpecs, namespace+"_"+pod.ObjectMeta.Name)
-			panic(err)
+			delete(cr.podSpecs, namespace+"_"+pod.ObjectMeta.Name)
+			return err
 		}
 	}
 
 	UpdatePostCreationPodStatus(pod, initContainers)
 	fmt.Println("Setting podsChanged true")
-	dri.podsChanged = true
+	cr.podsChanged = true
+
+	return nil
 }
 
 func ValidPrefix(tagPrefix string) bool {
@@ -146,7 +152,7 @@ func ValidPrefix(tagPrefix string) bool {
 	return false
 }
 
-func (dri *ContainerdRuntimeInterface) CheckFullTag(imageName string) string {
+func (cr *ContainerdRuntime) CheckFullTag(imageName string) string {
 	urlParts := strings.Split(imageName, "/")
 	if !ValidPrefix(urlParts[0]) {
 		imageName = fmt.Sprintf("docker.io/%s", imageName)
@@ -160,19 +166,19 @@ func (dri *ContainerdRuntimeInterface) CheckFullTag(imageName string) string {
 	}
 }
 
-func (dri *ContainerdRuntimeInterface) SetupPorts(pod *v1.Pod, dc *v1.Container) {
+func (cr *ContainerdRuntime) SetupPorts(pod *v1.Pod, dc *v1.Container) {
 	//TODO!
 }
 
-func (dri *ContainerdRuntimeInterface) CleanupPorts(pod *v1.Pod, dc *v1.Container) {
+func (cr *ContainerdRuntime) CleanupPorts(pod *v1.Pod, dc *v1.Container) {
 
 }
 
-func (dri *ContainerdRuntimeInterface) DeployContainer(namespace string, pod *v1.Pod, dc *v1.Container) (string, error) {
+func (cr *ContainerdRuntime) CreateContainer(namespace string, pod *v1.Pod, dc *v1.Container) (string, error) {
 	imageName := dc.Image
-	fullName := dri.GetContainerName(namespace, *pod, *dc)
+	fullName := cr.GetContainerName(namespace, *pod, *dc)
 
-	imageName = dri.CheckFullTag(imageName)
+	imageName = cr.CheckFullTag(imageName)
 
 	envVars := GetEnvAsStringArray(dc)
 
@@ -199,19 +205,19 @@ func (dri *ContainerdRuntimeInterface) DeployContainer(namespace string, pod *v1
 	}
 
 	//handle volume mounts
-	vmounts := dri.BuildMounts(pod, dc)
+	vmounts := cr.BuildMounts(pod, dc)
 
 	//handle resource limits
-	cgroup := dri.SetContainerResources(pod.ObjectMeta.Namespace, pod.ObjectMeta.Name, dc)
+	cgroup := cr.SetContainerResources(pod.ObjectMeta.Namespace, pod.ObjectMeta.Name, dc)
 
 	//pull image + policy
 	var image containerd.Image
-	image, err := dri.client.GetImage(dri.ctx, imageName)
+	image, err := cr.client.GetImage(cr.ctx, imageName)
 	if (err != nil && dc.ImagePullPolicy == v1.PullIfNotPresent) || dc.ImagePullPolicy == v1.PullAlways {
 		if dc.ImagePullPolicy == v1.PullAlways {
-			dri.client.ImageService().Delete(dri.ctx, imageName)
+			cr.client.ImageService().Delete(cr.ctx, imageName)
 		}
-		image, err = dri.client.Pull(dri.ctx, imageName, containerd.WithPullUnpack)
+		image, err = cr.client.Pull(cr.ctx, imageName, containerd.WithPullUnpack)
 		if err != nil {
 			fmt.Printf("Pull failed for image %s\n", imageName)
 			fmt.Println(err.Error())
@@ -236,6 +242,7 @@ func (dri *ContainerdRuntimeInterface) DeployContainer(namespace string, pod *v1
 		//netSpecOpts,
 	}
 
+	/* TODO:
 	//find out if a gpu should be assigned, and if we have the right type for the container
 	assignGpu, err := CheckGpuResourceRequired(dc)
 	if err != nil {
@@ -247,6 +254,7 @@ func (dri *ContainerdRuntimeInterface) DeployContainer(namespace string, pod *v1
 		//but then again, it's not like they have a container hook, so we should really just detect and advertise nvidia?
 		specOpts = append(specOpts, nvidia.WithGPUs(nvidia.WithDevices(1), nvidia.WithAllCapabilities))
 	}
+	*/
 
 	if len(args) > 0 {
 		specOpts = append(specOpts, oci.WithProcessArgs(args...))
@@ -270,8 +278,8 @@ func (dri *ContainerdRuntimeInterface) DeployContainer(namespace string, pod *v1
 	}
 
 	fmt.Printf("Creating container with snapshotter native\n")
-	container, err := dri.client.NewContainer(
-		dri.ctx,
+	container, err := cr.client.NewContainer(
+		cr.ctx,
 		fullName,
 		//containerd.WithSnapshotter("native"),
 		containerd.WithImage(image),
@@ -286,7 +294,7 @@ func (dri *ContainerdRuntimeInterface) DeployContainer(namespace string, pod *v1
 	fmt.Printf("Successfully created container with ID %s and snapshot with ID %s\n", container.ID(), snapshot)
 
 	// create a task from the container
-	task, err := container.NewTask(dri.ctx, cio.NewCreator(cio.WithStdio))
+	task, err := container.NewTask(cr.ctx, cio.NewCreator(cio.WithStdio))
 	if err != nil {
 		fmt.Println(err.Error())
 		return "", err
@@ -295,7 +303,7 @@ func (dri *ContainerdRuntimeInterface) DeployContainer(namespace string, pod *v1
 	//defer task.Delete(ctx)
 
 	// make sure we wait before calling start
-	exitStatusC, err := task.Wait(dri.ctx)
+	exitStatusC, err := task.Wait(cr.ctx)
 	if err != nil {
 		fmt.Println(err)
 		return "", err
@@ -303,16 +311,16 @@ func (dri *ContainerdRuntimeInterface) DeployContainer(namespace string, pod *v1
 	fmt.Println("Task awaited with status %d", exitStatusC)
 
 	// call start on the task to execute the redis server
-	if err := task.Start(dri.ctx); err != nil {
+	if err := task.Start(cr.ctx); err != nil {
 		fmt.Println(err.Error())
 		return "", err
 	}
 	fmt.Println("Task started")
 
 	//NET: trying to fix the net namespace here
-	dri.SetupPodIPs(pod, task)
+	cr.SetupPodIPs(pod, task)
 
-	dri.containerNameTaskMapping[fullName] = PodContainer{
+	cr.containerNameTaskMapping[fullName] = PodContainer{
 		podName:   pod.ObjectMeta.Name,
 		container: container,
 		task:      task,
@@ -321,6 +329,7 @@ func (dri *ContainerdRuntimeInterface) DeployContainer(namespace string, pod *v1
 	return task.ID(), nil
 }
 
+/* TODO:
 func CheckGpuResourceRequired(dc *v1.Container) (bool, error) {
 	if dc.Resources.Limits == nil {
 		dc.Resources.Limits = v1.ResourceList{}
@@ -350,14 +359,15 @@ func CheckGpuResourceRequired(dc *v1.Container) (bool, error) {
 	}
 	return false, nil
 }
+*/
 
-func (dri *ContainerdRuntimeInterface) SetupPodIPs(pod *v1.Pod, task containerd.Task) {
-	pod.Status.HostIP = config.Cfg.DeviceIP
+func (cr *ContainerdRuntime) SetupPodIPs(pod *v1.Pod, task containerd.Task) {
+	// TODO: pod.Status.HostIP = config.Cfg.DeviceIP
 	if pod.Status.PodIP == "" {
 		if pod.Spec.HostNetwork {
-			pod.Status.PodIP = config.Cfg.DeviceIP
+			// TODO: pod.Status.PodIP = config.Cfg.DeviceIP
 		} else {
-			pids, _ := task.Pids(dri.ctx)
+			pids, _ := task.Pids(cr.ctx)
 			pidJson, _ := json.Marshal(pids)
 			fmt.Printf("Container pids %s", string(pidJson))
 			pod.Status.PodIP = BindNetNamespace(pod.ObjectMeta.Namespace, pod.ObjectMeta.Name, int(pids[0].Pid))
@@ -365,11 +375,11 @@ func (dri *ContainerdRuntimeInterface) SetupPodIPs(pod *v1.Pod, task containerd.
 	}
 }
 
-func (dri *ContainerdRuntimeInterface) BuildMounts(pod *v1.Pod, dc *v1.Container) []specs.Mount {
+func (cr *ContainerdRuntime) BuildMounts(pod *v1.Pod, dc *v1.Container) []specs.Mount {
 	mounts := []specs.Mount{}
 	//mountNames := make(map[string]struct{})
 	for _, cVol := range dc.VolumeMounts {
-		cmount := dri.CreateMount(pod, cVol)
+		cmount := cr.CreateMount(pod, cVol)
 		if cmount != nil {
 			mounts = append(mounts, *cmount)
 			//mountNames[cVol.Name] = struct{}{}
@@ -378,7 +388,7 @@ func (dri *ContainerdRuntimeInterface) BuildMounts(pod *v1.Pod, dc *v1.Container
 	return mounts
 }
 
-func (dri *ContainerdRuntimeInterface) CreateMount(pod *v1.Pod, volMount v1.VolumeMount) *specs.Mount {
+func (cr *ContainerdRuntime) CreateMount(pod *v1.Pod, volMount v1.VolumeMount) *specs.Mount {
 	//fmt.Printf("Creating mount for volumemount %s\n", volMount.Name)
 	vName := volMount.Name
 	var volume v1.Volume
@@ -421,7 +431,7 @@ func (dri *ContainerdRuntimeInterface) CreateMount(pod *v1.Pod, volMount v1.Volu
 
 }
 
-func (dri *ContainerdRuntimeInterface) SetContainerResources(namespace string, podname string, dc *v1.Container) string {
+func (cr *ContainerdRuntime) SetContainerResources(namespace string, podname string, dc *v1.Container) string {
 	//some default values
 	oneCpu, _ := resource.ParseQuantity("1")
 	defaultMem, _ := resource.ParseQuantity("150Mi")
@@ -477,57 +487,61 @@ func (dri *ContainerdRuntimeInterface) SetContainerResources(namespace string, p
 	return cgroup
 }
 
-func (dri *ContainerdRuntimeInterface) UpdatePod(pod *v1.Pod) {
+func (cr *ContainerdRuntime) UpdatePod(pod *v1.Pod) error {
 	containers := pod.Spec.Containers
 	namespace := pod.ObjectMeta.Namespace
 
-	dri.podSpecs[namespace+"_"+pod.ObjectMeta.Name] = pod
+	cr.podSpecs[namespace+"_"+pod.ObjectMeta.Name] = pod
 
 	for _, cont := range containers {
-		dri.UpdateContainer(namespace, pod, &cont)
+		cr.UpdateContainer(namespace, pod, &cont)
 	}
 	fmt.Println("Setting podsChanged true")
-	dri.podsChanged = true
+	cr.podsChanged = true
+
+	return nil
 }
 
-func (dri *ContainerdRuntimeInterface) UpdateContainer(namespace string, pod *v1.Pod, dc *v1.Container) {
-	dri.StopContainer(namespace, pod, dc)
-	dri.DeployContainer(namespace, pod, dc)
+func (cr *ContainerdRuntime) UpdateContainer(namespace string, pod *v1.Pod, dc *v1.Container) {
+	cr.StopContainer(namespace, pod, dc)
+	cr.CreateContainer(namespace, pod, dc)
 }
 
-func (dri *ContainerdRuntimeInterface) DeletePod(pod *v1.Pod) {
+func (cr *ContainerdRuntime) DeletePod(pod *v1.Pod) error {
 	containers := pod.Spec.Containers
 	namespace := pod.ObjectMeta.Namespace
 
-	delete(dri.podSpecs, namespace+"_"+pod.ObjectMeta.Name)
+	delete(cr.podSpecs, namespace+"_"+pod.ObjectMeta.Name)
 
 	for _, cont := range containers {
-		dri.StopContainer(namespace, pod, &cont)
+		cr.StopContainer(namespace, pod, &cont)
 	}
 	RemoveNetNamespace(pod.ObjectMeta.Namespace, pod.ObjectMeta.Name)
 
 	FreeIP(pod.ObjectMeta.Namespace, pod.ObjectMeta.Name)
 	fmt.Println("Setting podsChanged true")
-	dri.podsChanged = true
+	cr.podsChanged = true
+
+	return nil
 }
 
-func (dri *ContainerdRuntimeInterface) StopContainer(namespace string, pod *v1.Pod, dc *v1.Container) bool {
-	fullName := dri.GetContainerName(namespace, *pod, *dc) //namespace + "_" + pod.ObjectMeta.Name + "_" + dc.Name
+func (cr *ContainerdRuntime) StopContainer(namespace string, pod *v1.Pod, dc *v1.Container) bool {
+	fullName := cr.GetContainerName(namespace, *pod, *dc) //namespace + "_" + pod.ObjectMeta.Name + "_" + dc.Name
 	fmt.Printf("Stopping container %s\n", fullName)
 
-	tuple, found := dri.containerNameTaskMapping[fullName]
+	tuple, found := cr.containerNameTaskMapping[fullName]
 	if found {
 		fmt.Printf("Stopping and removing task id %s\n", tuple.task.ID())
 		//time, _ := time.ParseDuration("10s")
-		//err := dri.cli.ContainerStop(dri.ctx, contID, nil)
-		exitStatus, err := tuple.task.Delete(dri.ctx)
+		//err := cr.cli.ContainerStop(cr.ctx, contID, nil)
+		exitStatus, err := tuple.task.Delete(cr.ctx)
 		fmt.Printf("Task stopped status %d \n", exitStatus)
 
 		if err == nil {
-			delete(dri.containerNameTaskMapping, fullName)
+			delete(cr.containerNameTaskMapping, fullName)
 			fmt.Printf("Removing container %s\n", fullName)
 
-			err = tuple.container.Delete(dri.ctx, containerd.WithSnapshotCleanup)
+			err = tuple.container.Delete(cr.ctx, containerd.WithSnapshotCleanup)
 			DeleteCgroup(GetCgroup(namespace, pod.ObjectMeta.Name, dc.Name))
 			if err != nil {
 				fmt.Println(err.Error())
@@ -540,8 +554,8 @@ func (dri *ContainerdRuntimeInterface) StopContainer(namespace string, pod *v1.P
 	return true
 }
 
-func (dri *ContainerdRuntimeInterface) UpdatePodStatus(namespace string, pod *v1.Pod) {
-	pod.Status.HostIP = config.Cfg.DeviceIP
+func (cr *ContainerdRuntime) UpdatePodStatus(namespace string, pod *v1.Pod) {
+	// TODO: pod.Status.HostIP = config.Cfg.DeviceIP
 	fmt.Printf("Update pod status %s\n", pod.ObjectMeta.Name)
 	latestStatus := GetHighestPodStatus(pod)
 	if latestStatus == nil {
@@ -554,17 +568,17 @@ func (dri *ContainerdRuntimeInterface) UpdatePodStatus(namespace string, pod *v1
 		fmt.Println("Pod ready, just updating")
 		//everything good, just update statuses
 		//check pod status phases running or succeeded
-		dri.UpdateContainerStatuses(namespace, pod, *latestStatus)
-		//dri.SetupPodIPs(pod)
+		cr.UpdateContainerStatuses(namespace, pod, *latestStatus)
+		//cr.SetupPodIPs(pod)
 	case v1.PodInitialized:
 		if latestStatus.Status == v1.ConditionTrue {
 			fmt.Println("Pod initialized, just updating and upgrading to ready if possible")
 			//update statuses, check for PodReady, check for phase running
-			dri.UpdateContainerStatuses(namespace, pod, *latestStatus)
+			cr.UpdateContainerStatuses(namespace, pod, *latestStatus)
 		} else {
 			fmt.Println("Pod initialized, checking init containers")
 			//check init containers
-			dri.CheckInitContainers(namespace, pod)
+			cr.CheckInitContainers(namespace, pod)
 		}
 	case v1.PodReasonUnschedulable:
 		fmt.Println("Pod unschedulable, ignoring")
@@ -575,19 +589,19 @@ func (dri *ContainerdRuntimeInterface) UpdatePodStatus(namespace string, pod *v1
 	}
 }
 
-func (dri *ContainerdRuntimeInterface) CheckInitContainers(namespace string, pod *v1.Pod) {
+func (cr *ContainerdRuntime) CheckInitContainers(namespace string, pod *v1.Pod) {
 	//ctx := namespaces.WithNamespace(context.Background(), namespace)
 	allContainersDone := true
 	noErrors := true
 
 	containerStatuses := []v1.ContainerStatus{}
 	for _, cont := range pod.Spec.Containers {
-		fullName := dri.GetContainerNameAlt(namespace, pod.ObjectMeta.Name, cont.Name)
-		tuple, found := dri.containerNameTaskMapping[fullName]
+		fullName := cr.GetContainerNameAlt(namespace, pod.ObjectMeta.Name, cont.Name)
+		tuple, found := cr.containerNameTaskMapping[fullName]
 		if found {
 			state := v1.ContainerState{}
 
-			taskStatus, _ := tuple.task.Status(dri.ctx)
+			taskStatus, _ := tuple.task.Status(cr.ctx)
 			switch taskStatus.Status { //contJSON.State.Status {
 			case containerd.Created: //"created":
 				allContainersDone = false
@@ -634,13 +648,13 @@ func (dri *ContainerdRuntimeInterface) CheckInitContainers(namespace string, pod
 	if noErrors && allContainersDone {
 		//start actual containers
 		for _, container := range pod.Spec.Containers {
-			(*dri).DeployContainer(pod.ObjectMeta.Namespace, pod, &container)
+			(*cr).CreateContainer(pod.ObjectMeta.Namespace, pod, &container)
 		}
 	}
 	UpdateInitPodStatus(pod, noErrors, allContainersDone)
 }
 
-func (dri *ContainerdRuntimeInterface) UpdateContainerStatuses(namespace string, pod *v1.Pod, podStatus v1.PodCondition) {
+func (cr *ContainerdRuntime) UpdateContainerStatuses(namespace string, pod *v1.Pod, podStatus v1.PodCondition) {
 	//ctx := namespaces.WithNamespace(context.Background(), namespace)
 	allContainersRunning := true
 	allContainersDone := true
@@ -648,12 +662,12 @@ func (dri *ContainerdRuntimeInterface) UpdateContainerStatuses(namespace string,
 
 	containerStatuses := []v1.ContainerStatus{}
 	for _, cont := range pod.Spec.Containers {
-		fullName := dri.GetContainerNameAlt(namespace, pod.ObjectMeta.Name, cont.Name)
-		tuple, found := dri.containerNameTaskMapping[fullName]
+		fullName := cr.GetContainerNameAlt(namespace, pod.ObjectMeta.Name, cont.Name)
+		tuple, found := cr.containerNameTaskMapping[fullName]
 		if found {
 			state := v1.ContainerState{}
 
-			taskStatus, _ := tuple.task.Status(dri.ctx)
+			taskStatus, _ := tuple.task.Status(cr.ctx)
 			switch taskStatus.Status { //contJSON.State.Status {
 			case "created":
 				allContainersRunning = false
@@ -703,17 +717,20 @@ func (dri *ContainerdRuntimeInterface) UpdateContainerStatuses(namespace string,
 	changed := UpdatePodStatus(podStatus, containerStatuses, pod, noErrors, allContainersRunning, allContainersDone)
 	if changed {
 		fmt.Println("Setting podsChanged true")
-		dri.podsChanged = true
+		cr.podsChanged = true
 	}
 }
 
-func (dri *ContainerdRuntimeInterface) FetchContainerLogs(namespace string, podName string, containerName string, tail string, timestamps bool) *io.ReadCloser {
+func (cr *ContainerdRuntime) GetContainerLogs(namespace string, podName string, containerName string, opts api.ContainerLogOpts) (io.ReadCloser, error) {
 	//TODO
-	return nil
+	return nil, errors.New("GetContainerLogs not implemented")
 }
 
-func (dri *ContainerdRuntimeInterface) ShutdownPods() {
-	for _, pod := range dri.podSpecs {
-		dri.DeletePod(pod)
+func (cr *ContainerdRuntime) ShutdownPods() {
+	for _, pod := range cr.podSpecs {
+		cr.DeletePod(pod)
 	}
 }
+
+// Ensure interface is implemented
+var _ Runtime = (*ContainerdRuntime)(nil)

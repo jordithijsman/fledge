@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
@@ -29,13 +28,6 @@ func patchCmd(ctx context.Context, rootCmd *cobra.Command, s *provider.Store, c 
 			}
 			// Patch options
 			patchOpts(cfg, cmd, c)
-			// Configure the appropriate runtime
-			switch cfg.Runtime {
-			case "containerd":
-				// cri := (&fledge.ContainerdRuntimeInterface{}).Init()
-			default:
-				return errors.New(fmt.Sprintf("runtime '%s' is not supported\n", cfg.Runtime))
-			}
 		}
 		return nil
 	}
@@ -43,10 +35,10 @@ func patchCmd(ctx context.Context, rootCmd *cobra.Command, s *provider.Store, c 
 
 func patchOpts(cfg *config.Config, cmd *cobra.Command, c root.Opts) {
 	// Set default commandline arguments
-	patchOpt(cmd.Flags(), "nodename", cfg.DeviceName)
+	patchOpt(cmd.Flags(), "nodename", cfg.NodeName)
 	patchOpt(cmd.Flags(), "os", runtime.GOOS)
-	patchOpt(cmd.Flags(), "provider", cfg.Runtime)
-	patchOpt(cmd.Flags(), "provider-config", cfg.RuntimeConfig)
+	patchOpt(cmd.Flags(), "provider", "broker")
+	patchOpt(cmd.Flags(), "provider-config", "broker.json")
 	patchOpt(cmd.Flags(), "pod-sync-workers", strconv.FormatInt(int64(runtime.NumCPU()), 10))
 	patchOpt(cmd.Flags(), "enable-node-lease", strconv.FormatBool(true))
 

@@ -337,12 +337,20 @@ func (p *MockProvider) ConfigureNode(ctx context.Context, n *v1.Node) { //nolint
 	n.Status.Conditions = p.nodeConditions()
 	n.Status.Addresses = p.nodeAddresses()
 	n.Status.DaemonEndpoints = p.nodeDaemonEndpoints()
+
+	// n.ObjectMeta.Labels["kubernetes.io/hostname"] = n.Status.NodeInfo.
+
+	// Discover architecture and operating system
+	n.Status.NodeInfo.Architecture = "amd64"
 	os := p.operatingSystem
 	if os == "" {
 		os = "linux"
 	}
 	n.Status.NodeInfo.OperatingSystem = os
-	n.Status.NodeInfo.Architecture = "amd64"
+	n.ObjectMeta.Labels["kubernetes.io/arch"] = n.Status.NodeInfo.Architecture
+	n.ObjectMeta.Labels["kubernetes.io/os"] = n.Status.NodeInfo.OperatingSystem
+
+	// Prevent load-balancing
 	n.ObjectMeta.Labels["alpha.service-controller.kubernetes.io/exclude-balancer"] = "true"
 	n.ObjectMeta.Labels["node.kubernetes.io/exclude-from-external-load-balancers"] = "true"
 }

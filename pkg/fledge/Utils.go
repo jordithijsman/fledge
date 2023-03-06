@@ -39,13 +39,13 @@ func CreateVolumes(ctx context.Context, pod *v1.Pod) {
 		}
 		if vol.ConfigMap != nil {
 			//fmt.Printf("Creating configmap volume %s\n", vol.Name)
-			cfgmap, err := K8sClient.CoreV1().ConfigMaps("kube-system").Get(ctx, vol.ConfigMap.Name, metav1.GetOptions{}) //(*CfgMapLister).ConfigMaps("kube-system").Get(vol.ConfigMap.Name)
+			// TODO: crashes cfgmap, err := K8sClient.CoreV1().ConfigMaps("kube-system").Get(ctx, vol.ConfigMap.Name, metav1.GetOptions{}) //(*CfgMapLister).ConfigMaps("kube-system").Get(vol.ConfigMap.Name)
 			//cfgmap, err := FetchConfigMap(vol.ConfigMap.Name)
-			if err != nil {
+			/* if err != nil {
 				//fmt.Printf("Can't create configmap volume %s because %s\n", vol.Name, err.Error())
 			} else {
 				CreateVolumeFiles(pod, vol.Name, cfgmap.Data)
-			}
+			} */
 		}
 	}
 }

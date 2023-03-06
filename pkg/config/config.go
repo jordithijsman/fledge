@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/virtual-kubelet/virtual-kubelet/log"
+	"gitlab.ilabt.imec.be/fledge/service/pkg/stats"
 	"gopkg.in/validator.v2"
 	"io"
 	"os"
@@ -13,10 +14,7 @@ import (
 )
 
 type Config struct {
-	Runtime         string `json:"runtime" env:"RUNTIME" validate:"nonzero"`
-	RuntimeConfig   string `json:"runtimeConfig" env:"RUNTIME_CONFIG" validate:"nonzero"`
-	DeviceName      string `json:"deviceName" env:"DEVICE_NAME"`
-	ShortDeviceName string `json:"shortDeviceName"`
+	NodeName        string `json:"nodeName" env:"NODE_NAME"`
 	DeviceIP        string `json:"deviceIP" env:"DEVICE_IP"`
 	ServicePort     int    `json:"servicePort" env:"SERVICE_PORT" validate:"nonzero"`
 	KubeletPort     int    `json:"kubeletPort" env:"KUBELET_PORT" validate:"nonzero"`
@@ -83,5 +81,9 @@ func LoadConfig(ctx context.Context, path string) (*Config, error) {
 		return nil, err
 	}
 	log.G(ctx).Debugf("Config is valid %+v\n", cfg)
+	// Set defaults
+	if cfg.NodeName == "" {
+		cfg.NodeName = stats.HostName()
+	}
 	return cfg, nil
 }
