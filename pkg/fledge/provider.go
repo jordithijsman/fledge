@@ -68,10 +68,15 @@ func NewBrokerProviderBrokerConfig(cfg BrokerConfig, nodeName, operatingSystem s
 	}
 
 	// setup container runtime
-	var runtime Runtime
+	var (
+		runtime Runtime
+		err     error
+	)
 	switch cfg.Runtime {
 	case "containerd":
-		runtime, _ = NewContainerdRuntime(cfg)
+		if runtime, err = NewContainerdRuntime(cfg); err != nil {
+			return nil, err
+		}
 	default:
 		return nil, errors.New(fmt.Sprintf("runtime '%s' is not supported\n", cfg.Runtime))
 	}
@@ -142,7 +147,7 @@ func (p *BrokerProvider) CreatePod(ctx context.Context, pod *v1.Pod) error {
 	// Add the pod's coordinates to the current span.
 	ctx = addAttributes(ctx, span, namespaceKey, pod.Namespace, nameKey, pod.Name)
 
-	log.G(ctx).Infof("receive CreatePod %q", pod.Name)
+	log.G(ctx).Debugf("receive CreatePod %q", pod.Name)
 
 	return p.runtime.CreatePod(pod)
 }
@@ -155,7 +160,7 @@ func (p *BrokerProvider) UpdatePod(ctx context.Context, pod *v1.Pod) error {
 	// Add the pod's coordinates to the current span.
 	ctx = addAttributes(ctx, span, namespaceKey, pod.Namespace, nameKey, pod.Name)
 
-	log.G(ctx).Infof("receive UpdatePod %q", pod.Name)
+	log.G(ctx).Debugf("receive UpdatePod %q", pod.Name)
 
 	return p.runtime.UpdatePod(pod)
 }
@@ -170,7 +175,7 @@ func (p *BrokerProvider) DeletePod(ctx context.Context, pod *v1.Pod) error {
 	// Add the pod's coordinates to the current span.
 	ctx = addAttributes(ctx, span, namespaceKey, pod.Namespace, nameKey, pod.Name)
 
-	log.G(ctx).Infof("receive DeletePod %q", pod.Name)
+	log.G(ctx).Debugf("receive DeletePod %q", pod.Name)
 
 	return p.runtime.DeletePod(pod)
 }
@@ -186,7 +191,7 @@ func (p *BrokerProvider) GetPod(ctx context.Context, namespace, name string) (*v
 	// Add the pod's coordinates to the current span.
 	ctx = addAttributes(ctx, span, namespaceKey, namespace, nameKey, name)
 
-	log.G(ctx).Infof("receive GetPod %q", name)
+	log.G(ctx).Debugf("receive GetPod %q", name)
 
 	return p.runtime.GetPod(namespace, name)
 }
@@ -231,7 +236,7 @@ func (p *BrokerProvider) GetPodStatus(ctx context.Context, namespace, name strin
 	// Add namespace and name as attributes to the current span.
 	ctx = addAttributes(ctx, span, namespaceKey, namespace, nameKey, name)
 
-	log.G(ctx).Infof("receive GetPodStatus %q", name)
+	log.G(ctx).Debugf("receive GetPodStatus %q", name)
 
 	pod, err := p.runtime.GetPod(namespace, name)
 	if err != nil {
@@ -305,7 +310,7 @@ func (p *BrokerProvider) capacity() v1.ResourceList {
 	node[v1.ResourceCPU], _ = stats.CpuCount()
 	node[v1.ResourceMemory], _ = stats.MemoryTotal()
 	node[v1.ResourceStorage], _ = stats.StorageSize()
-	node[v1.ResourcePods], _ = resource.ParseQuantity("2") // TODO: get from settings?
+	node[v1.ResourcePods], _ = resource.ParseQuantity("5") // TODO: get from settings?
 
 	// Get resource requests and limits
 	limits := v1.ResourceList{}

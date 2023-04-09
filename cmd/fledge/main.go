@@ -44,7 +44,8 @@ func main() {
 
 	s := provider.NewStore()
 	registerMock(s)
-	registerBroker(s) // FLEDGE
+	registerBackend(s) // FLEDGE
+	registerBroker(s)  // FLEDGE
 
 	rootCmd := root.NewCommand(ctx, filepath.Base(os.Args[0]), s, opts)
 	rootCmd.AddCommand(version.NewCommand(buildVersion, buildTime), providers.NewCommand(s))

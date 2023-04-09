@@ -38,9 +38,9 @@ func GetEnvAsStringArray(dc *v1.Container) []string {
 	//fmt.Printf("Number of env vars %d\n", len(dc.Env))
 	envVars := []string{}
 	for _, evar := range dc.Env {
-		fmt.Printf("Handling env var %s\n", evar.Name)
+		// fmt.Printf("Handling env var %s\n", evar.Name)
 		if evar.ValueFrom == nil {
-			fmt.Printf("Handling env var %s value type %s\n", evar.Name, evar.Value)
+			// fmt.Printf("Handling env var %s value type %s\n", evar.Name, evar.Value)
 			envVars = append(envVars, evar.Name+"='"+evar.Value+"'")
 		}
 		//replace it in the container cmds

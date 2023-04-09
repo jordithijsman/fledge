@@ -7,6 +7,7 @@ import (
 	"gitlab.ilabt.imec.be/fledge/service/pkg/stats"
 	"gopkg.in/validator.v2"
 	"io"
+	"net"
 	"os"
 	"reflect"
 	"strconv"
@@ -14,22 +15,41 @@ import (
 )
 
 type Config struct {
-	NodeName        string `json:"nodeName" env:"NODE_NAME"`
-	DeviceIP        string `json:"deviceIP" env:"DEVICE_IP"`
-	ServicePort     int    `json:"servicePort" env:"SERVICE_PORT" validate:"nonzero"`
-	KubeletPort     int    `json:"kubeletPort" env:"KUBELET_PORT" validate:"nonzero"`
-	VKubeServiceURL string `json:"vKubeServiceURL" env:"VKUBE_URL"`
-	UseKubeAPI      bool   `json:"useKubeAPI"`
-	FledgeAPIPort   int    `json:"fledgeAPIPort"`
-	IgnoreKubeProxy string `json:"ignoreKubeProxy" env:"IGNORE_KPROXY"`
-	Interface       string `json:"interface" env:"INET_INTERFACE"`
-	HeartbeatTime   int    `json:"heartbeatTime" env:"HEARTBEAT_TIME" validate:"min=1"`
-	// API server options
-	CertPath   string `json:"certPath" env:"CERT_PATH" validate:"nonzero"`
-	KeyPath    string `json:"keyPath" env:"KEY_PATH" validate:"nonzero"`
-	CACertPath string `json:"caCertPath" env:"CA_CERT_PATH" validate:"nonzero"`
-	// Features
-	EnableMetrics bool `json:"metrics" env:"METRICS"`
+	// ServerCertPath is the path to the certificate to secure the kubelet API.
+	ServerCertPath string `json:"serverCertPath" env:"SERVER_CERT_PATH" validate:"nonzero"`
+
+	// ServerKeyPath is the path to the private key to sign the kubelet API.
+	ServerKeyPath string `json:"serverKeyPath" env:"SERVER_KEY_PATH" validate:"nonzero"`
+
+	// NodeInternalIP is the desired Node internal IP.
+	NodeInternalIP net.IP `json:"nodeInternalIP" env:"NODE_INTERNAL_IP"`
+
+	// NodeExternalIP is the desired Node external IP.
+	NodeExternalIP net.IP `json:"nodeExternalIP" env:"NODE_EXTERNAL_IP"`
+
+	//// NodeInternalIface is interface's name whose address to use for Node internal IP.
+	//NodeInternalIface string
+	//
+	//// NodeExternalIface is the interface's name whose address to use for Node external IP.
+	//NodeExternalIface string
+
+	// KubernetesURL is the value to set for the KUBERNETES_SERVICE_* Pod env vars.
+	KubernetesURL string `json:"kubernetesURL" env:"KUBERNETES_URL"`
+
+	// ListenAddress is the address to bind for serving requests from the Kubernetes API server.
+	ListenAddress string `json:"listenAddress" env:"LISTEN_ADDRESS"`
+
+	// NodeName identifies the Node in the cluster.
+	NodeName string `json:"nodeName" env:"NODE_NAME"`
+
+	// DisableTaint disables fledge default taint.
+	DisableTaint bool `json:"disableTaint" env:"DISABLE_TAINT"`
+
+	// MetricsAddress is the address to bind for serving metrics.
+	MetricsAddress string `json:"metricsAddress" env:"METRICS_ADDRESS"`
+
+	// PodSyncWorkers is the number of workers that handle Pod events.
+	PodSyncWorkers int `json:"podSyncWorkers" env:"POD_SYNC_WORKERS"`
 }
 
 func LoadConfig(ctx context.Context, path string) (*Config, error) {
@@ -82,8 +102,17 @@ func LoadConfig(ctx context.Context, path string) (*Config, error) {
 	}
 	log.G(ctx).Debugf("Config is valid %+v\n", cfg)
 	// Set defaults
+	if cfg.NodeInternalIP == nil {
+		cfg.NodeInternalIP = stats.InternalIP()
+	}
+	if cfg.NodeExternalIP == nil {
+		cfg.NodeExternalIP = stats.ExternalIP()
+	}
 	if cfg.NodeName == "" {
 		cfg.NodeName = stats.HostName()
+	}
+	if cfg.PodSyncWorkers == 0 {
+		cfg.PodSyncWorkers = 10
 	}
 	return cfg, nil
 }

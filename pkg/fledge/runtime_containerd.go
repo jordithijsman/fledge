@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/containerd/containerd/reference/docker"
+	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"github.com/virtual-kubelet/virtual-kubelet/node/api"
 	"gitlab.ilabt.imec.be/fledge/service/pkg/util"
@@ -13,12 +15,9 @@ import (
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/mount"
 
-	"io"
-	"strings"
-
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
-	specs "github.com/opencontainers/runtime-spec/specs-go"
+	"io"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -41,9 +40,9 @@ type ContainerdRuntime struct {
 }
 
 func NewContainerdRuntime(cfg BrokerConfig) (*ContainerdRuntime, error) {
-	client, _ := containerd.New("/run/containerd/containerd.sock")
+	client, err := containerd.New("/run/containerd/containerd.sock")
 	if client == nil {
-		fmt.Println("Failed to create containerd client!")
+		return nil, err
 	}
 
 	cr := &ContainerdRuntime{
@@ -152,20 +151,6 @@ func ValidPrefix(tagPrefix string) bool {
 	return false
 }
 
-func (cr *ContainerdRuntime) CheckFullTag(imageName string) string {
-	urlParts := strings.Split(imageName, "/")
-	if !ValidPrefix(urlParts[0]) {
-		imageName = fmt.Sprintf("docker.io/%s", imageName)
-	}
-
-	parts := strings.Split(imageName, ":")
-	if len(parts) == 1 {
-		return fmt.Sprintf("%s:latest", imageName)
-	} else {
-		return imageName
-	}
-}
-
 func (cr *ContainerdRuntime) SetupPorts(pod *v1.Pod, dc *v1.Container) {
 	//TODO!
 }
@@ -175,12 +160,15 @@ func (cr *ContainerdRuntime) CleanupPorts(pod *v1.Pod, dc *v1.Container) {
 }
 
 func (cr *ContainerdRuntime) CreateContainer(namespace string, pod *v1.Pod, dc *v1.Container) (string, error) {
-	imageName := dc.Image
 	fullName := cr.GetContainerName(namespace, *pod, *dc)
-
-	imageName = cr.CheckFullTag(imageName)
-
 	envVars := GetEnvAsStringArray(dc)
+
+	// Parse image name
+	imageRef, err := docker.ParseDockerRef(dc.Image)
+	if err != nil {
+		return "", err
+	}
+	imageString := imageRef.String()
 
 	//restart policy won't be set here, instead tasks have to be monitored for their status
 	//and restarted if failed (and pod/node is not shutting down). TODO
@@ -211,15 +199,14 @@ func (cr *ContainerdRuntime) CreateContainer(namespace string, pod *v1.Pod, dc *
 	cgroup := cr.SetContainerResources(pod.ObjectMeta.Namespace, pod.ObjectMeta.Name, dc)
 
 	//pull image + policy
-	var image containerd.Image
-	image, err := cr.client.GetImage(cr.ctx, imageName)
+	image, err := cr.client.GetImage(cr.ctx, imageString)
 	if (err != nil && dc.ImagePullPolicy == v1.PullIfNotPresent) || dc.ImagePullPolicy == v1.PullAlways {
 		if dc.ImagePullPolicy == v1.PullAlways {
-			cr.client.ImageService().Delete(cr.ctx, imageName)
+			cr.client.ImageService().Delete(cr.ctx, imageString)
 		}
-		image, err = cr.client.Pull(cr.ctx, imageName, containerd.WithPullUnpack)
+		image, err = cr.client.Pull(cr.ctx, imageString, containerd.WithPullUnpack)
 		if err != nil {
-			fmt.Printf("Pull failed for image %s\n", imageName)
+			fmt.Printf("Pull failed for image %s\n", imageString)
 			fmt.Println(err.Error())
 			return "", err
 		}
@@ -277,7 +264,7 @@ func (cr *ContainerdRuntime) CreateContainer(namespace string, pod *v1.Pod, dc *
 		specOpts = append(specOpts, oci.WithPrivileged)
 	}
 
-	fmt.Printf("Creating container with snapshotter native\n")
+	// fmt.Printf("Creating container with snapshotter native\n")
 	container, err := cr.client.NewContainer(
 		cr.ctx,
 		fullName,
@@ -291,7 +278,7 @@ func (cr *ContainerdRuntime) CreateContainer(namespace string, pod *v1.Pod, dc *
 		return "", err
 	}
 
-	fmt.Printf("Successfully created container with ID %s and snapshot with ID %s\n", container.ID(), snapshot)
+	// fmt.Printf("Successfully created container with ID %s and snapshot with ID %s\n", container.ID(), snapshot)
 
 	// create a task from the container
 	task, err := container.NewTask(cr.ctx, cio.NewCreator(cio.WithStdio))
@@ -425,7 +412,7 @@ func (cr *ContainerdRuntime) CreateMount(pod *v1.Pod, volMount v1.VolumeMount) *
 		Options:     mntOpts, //volMount.ReadOnly,
 		Type:        "bind",
 	}
-	fmt.Printf("Mount source %s target %s propagation %s\n", cMount.Source, cMount.Destination, "whatever")
+	// fmt.Printf("Mount source %s target %s propagation %s\n", cMount.Source, cMount.Destination, "whatever")
 
 	return &cMount
 
@@ -436,10 +423,10 @@ func (cr *ContainerdRuntime) SetContainerResources(namespace string, podname str
 	oneCpu, _ := resource.ParseQuantity("1")
 	defaultMem, _ := resource.ParseQuantity("150Mi")
 
-	fmt.Printf("Checking cpu limiting support\n")
+	// fmt.Printf("Checking cpu limiting support\n")
 	supportCheck, _ := util.ExecShellCommand("ls /sys/fs/cgroup/cpu/ | grep -E 'cpu.cfs_[a-z]*_us'")
 	cpuSupported := supportCheck != ""
-	fmt.Printf("Cpu limit support %s\n", cpuSupported)
+	// fmt.Printf("Cpu limit support %s\n", cpuSupported)
 
 	var cpuLimit float64
 	var memLimit int64

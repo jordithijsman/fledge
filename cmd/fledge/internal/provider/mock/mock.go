@@ -139,7 +139,7 @@ func (p *MockProvider) CreatePod(ctx context.Context, pod *v1.Pod) error {
 	// Add the pod's coordinates to the current span.
 	ctx = addAttributes(ctx, span, namespaceKey, pod.Namespace, nameKey, pod.Name)
 
-	log.G(ctx).Infof("receive CreatePod %q", pod.Name)
+	log.G(ctx).Debugf("receive CreatePod %q", pod.Name)
 
 	key, err := buildKey(pod)
 	if err != nil {
@@ -196,7 +196,7 @@ func (p *MockProvider) UpdatePod(ctx context.Context, pod *v1.Pod) error {
 	// Add the pod's coordinates to the current span.
 	ctx = addAttributes(ctx, span, namespaceKey, pod.Namespace, nameKey, pod.Name)
 
-	log.G(ctx).Infof("receive UpdatePod %q", pod.Name)
+	log.G(ctx).Debugf("receive UpdatePod %q", pod.Name)
 
 	key, err := buildKey(pod)
 	if err != nil {
@@ -217,7 +217,7 @@ func (p *MockProvider) DeletePod(ctx context.Context, pod *v1.Pod) (err error) {
 	// Add the pod's coordinates to the current span.
 	ctx = addAttributes(ctx, span, namespaceKey, pod.Namespace, nameKey, pod.Name)
 
-	log.G(ctx).Infof("receive DeletePod %q", pod.Name)
+	log.G(ctx).Debugf("receive DeletePod %q", pod.Name)
 
 	key, err := buildKey(pod)
 	if err != nil {
@@ -261,7 +261,7 @@ func (p *MockProvider) GetPod(ctx context.Context, namespace, name string) (pod 
 	// Add the pod's coordinates to the current span.
 	ctx = addAttributes(ctx, span, namespaceKey, namespace, nameKey, name)
 
-	log.G(ctx).Infof("receive GetPod %q", name)
+	log.G(ctx).Debugf("receive GetPod %q", name)
 
 	key, err := buildKeyFromNames(namespace, name)
 	if err != nil {
@@ -282,14 +282,14 @@ func (p *MockProvider) GetContainerLogs(ctx context.Context, namespace, podName,
 	// Add pod and container attributes to the current span.
 	ctx = addAttributes(ctx, span, namespaceKey, namespace, nameKey, podName, containerNameKey, containerName)
 
-	log.G(ctx).Infof("receive GetContainerLogs %q", podName)
+	log.G(ctx).Debugf("receive GetContainerLogs %q", podName)
 	return io.NopCloser(strings.NewReader("")), nil
 }
 
 // RunInContainer executes a command in a container in the pod, copying data
 // between in/out/err and the container's stdin/stdout/stderr.
 func (p *MockProvider) RunInContainer(ctx context.Context, namespace, name, container string, cmd []string, attach api.AttachIO) error {
-	log.G(context.TODO()).Infof("receive ExecInContainer %q", container)
+	log.G(context.TODO()).Debugf("receive ExecInContainer %q", container)
 	return nil
 }
 
@@ -302,7 +302,7 @@ func (p *MockProvider) GetPodStatus(ctx context.Context, namespace, name string)
 	// Add namespace and name as attributes to the current span.
 	ctx = addAttributes(ctx, span, namespaceKey, namespace, nameKey, name)
 
-	log.G(ctx).Infof("receive GetPodStatus %q", name)
+	log.G(ctx).Debugf("receive GetPodStatus %q", name)
 
 	pod, err := p.GetPod(ctx, namespace, name)
 	if err != nil {
@@ -526,7 +526,7 @@ func buildKeyFromNames(namespace string, name string) (string, error) {
 	return fmt.Sprintf("%s-%s", namespace, name), nil
 }
 
-// buildKey is a helper for building the "key" for the providers pod store.
+// buildKey is a helper for building the "key" for the providers pod storage.
 func buildKey(pod *v1.Pod) (string, error) {
 	if pod.ObjectMeta.Namespace == "" {
 		return "", fmt.Errorf("pod namespace not found")
