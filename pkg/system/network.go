@@ -1,4 +1,4 @@
-package stats
+package system
 
 import (
 	"gitlab.ilabt.imec.be/fledge/service/pkg/util"

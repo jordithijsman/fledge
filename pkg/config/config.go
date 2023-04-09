@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/virtual-kubelet/virtual-kubelet/log"
-	"gitlab.ilabt.imec.be/fledge/service/pkg/stats"
+	"gitlab.ilabt.imec.be/fledge/service/pkg/system"
 	"gopkg.in/validator.v2"
 	"io"
 	"net"
@@ -103,13 +103,13 @@ func LoadConfig(ctx context.Context, path string) (*Config, error) {
 	log.G(ctx).Debugf("Config is valid %+v\n", cfg)
 	// Set defaults
 	if cfg.NodeInternalIP == nil {
-		cfg.NodeInternalIP = stats.InternalIP()
+		cfg.NodeInternalIP = system.InternalIP()
 	}
 	if cfg.NodeExternalIP == nil {
-		cfg.NodeExternalIP = stats.ExternalIP()
+		cfg.NodeExternalIP = system.ExternalIP()
 	}
 	if cfg.NodeName == "" {
-		cfg.NodeName = stats.HostName()
+		cfg.NodeName = system.HostName()
 	}
 	if cfg.PodSyncWorkers == 0 {
 		cfg.PodSyncWorkers = 10

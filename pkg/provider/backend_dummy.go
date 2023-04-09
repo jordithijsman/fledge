@@ -1,8 +1,12 @@
 package provider
 
 import (
-	corev1 "k8s.io/api/core/v1"
+	"io"
 	"os"
+	"strings"
+
+	"github.com/virtual-kubelet/virtual-kubelet/node/api"
+	corev1 "k8s.io/api/core/v1"
 )
 
 type DummyBackend struct {
@@ -14,54 +18,7 @@ func NewDummyBackend(cfg Config) (*DummyBackend, error) {
 	return b, nil
 }
 
-//func (b *DummyBackend) GetContainerName(namespace string, pod v1.Pod, dc v1.Instance) string {
-//	return "dummy"
-//}
-//
-//func (b *DummyBackend) GetContainerNameAlt(namespace string, podName string, dcName string) string {
-//	return "dummy"
-//}
-//
-//func (b *DummyBackend) CreatePod(pod *v1.Pod) error {
-//	return nil
-//}
-//
-//func (b *DummyBackend) CreateContainer(namespace string, pod *v1.Pod, dc *v1.Instance) (string, error) {
-//	return "", nil
-//}
-//
-//func (b *DummyBackend) UpdatePod(pod *v1.Pod) error {
-//	return nil
-//}
-//
-//func (b *DummyBackend) DeletePod(pod *v1.Pod) error {
-//	return nil
-//}
-//
-//func (b *DummyBackend) GetPod(namespace string, name string) (*v1.Pod, error) {
-//	return nil, nil
-//}
-//
-//func (b *DummyBackend) GetPods() ([]*v1.Pod, error) {
-//	return make([]*v1.Pod, 0), nil
-//}
-//
-//func (b *DummyBackend) GetContainerLogs(namespace string, podName string, containerName string, opts api.ContainerLogOpts) (io.ReadCloser, error) {
-//	r := io.NopCloser(strings.NewReader("dummy"))
-//	return r, nil
-//}
-//
-//func (b *DummyBackend) ShutdownPods() {
-//}
-//
-//func (b *DummyBackend) PodsChanged() bool {
-//	return false
-//}
-//
-//func (b *DummyBackend) ResetFlags() {
-//}
-
-func (b *DummyBackend) Status(instanceID string) (corev1.ContainerStatus, error) {
+func (b *DummyBackend) GetInstanceStatus(instanceID string) (corev1.ContainerStatus, error) {
 	dummyStatus := corev1.ContainerStatus{
 		Name: "dummy",
 		State: corev1.ContainerState{
@@ -75,19 +32,27 @@ func (b *DummyBackend) Status(instanceID string) (corev1.ContainerStatus, error)
 	return dummyStatus, nil
 }
 
-func (b *DummyBackend) Create(instanceID string, instance corev1.Container) error {
+func (b *DummyBackend) CreateInstance(instanceID string, instance corev1.Container) error {
 	return nil
 }
 
-func (b *DummyBackend) Start(instanceID string) error {
+func (b *DummyBackend) StartInstance(instanceID string) error {
 	return nil
 }
 
-func (b *DummyBackend) Kill(instanceID string, signal os.Signal) error {
+func (b *DummyBackend) KillInstance(instanceID string, signal os.Signal) error {
 	return nil
 }
 
-func (b *DummyBackend) Delete(instanceID string) error {
+func (b *DummyBackend) DeleteInstance(instanceID string) error {
+	return nil
+}
+
+func (b *DummyBackend) GetInstanceLogs(instanceID string, opts api.ContainerLogOpts) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("")), nil
+}
+
+func (b *DummyBackend) RunInInstance(instanceID string, cmd []string, attach api.AttachIO) error {
 	return nil
 }
 

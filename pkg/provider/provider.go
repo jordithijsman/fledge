@@ -5,16 +5,10 @@ import (
 )
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/virtual-kubelet/virtual-kubelet/log"
-	"github.com/virtual-kubelet/virtual-kubelet/node/api"
-	"github.com/virtual-kubelet/virtual-kubelet/node/api/statsv1alpha1"
 	"github.com/virtual-kubelet/virtual-kubelet/node/nodeutil"
-	"github.com/virtual-kubelet/virtual-kubelet/trace"
-	"io"
 	corev1 "k8s.io/api/core/v1"
 	"os"
 )
@@ -108,32 +102,6 @@ func loadConfig(providerConfig string) (cfg Config, err error) {
 		cfg.Enabled = defaultConfig.Enabled
 	}
 	return cfg, nil
-}
-
-// GetContainerLogs retrieves the logs of a container by name from the provider.
-func (p *Provider) GetContainerLogs(ctx context.Context, namespace, podName, containerName string, opts api.ContainerLogOpts) (io.ReadCloser, error) {
-	ctx, span := trace.StartSpan(ctx, "GetContainerLogs")
-	defer span.End()
-
-	// Add pod and container attributes to the current span.
-	ctx = addAttributes(ctx, span, namespaceKey, namespace, nameKey, podName, containerNameKey, containerName)
-
-	log.G(ctx).Info("receive GetContainerLogs %q", podName)
-
-	// TODO: return p.runtime.GetContainerLogs(namespace, podName, containerName, opts)
-	return nil, errors.New("GetContainerLogs not implemented")
-}
-
-// GetStatsSummary gets the stats for the node, including running pods
-func (p *Provider) GetStatsSummary(ctx context.Context) (*statsv1alpha1.Summary, error) {
-	ctx, span := trace.StartSpan(ctx, "GetStatsSummary")
-	defer span.End()
-
-	log.G(ctx).Info("receive GetStatsSummary")
-
-	// TODO Implement
-
-	return nil, errors.New("GetStatsSummary not implemented")
 }
 
 // TODO: Implement NodeChanged for performance reasons

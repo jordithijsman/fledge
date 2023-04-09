@@ -10,7 +10,7 @@ import (
 	"github.com/virtual-kubelet/virtual-kubelet/node/api/statsv1alpha1"
 	"github.com/virtual-kubelet/virtual-kubelet/node/nodeutil"
 	"github.com/virtual-kubelet/virtual-kubelet/trace"
-	"gitlab.ilabt.imec.be/fledge/service/pkg/stats"
+	"gitlab.ilabt.imec.be/fledge/service/pkg/system"
 	"io"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -307,9 +307,9 @@ func (p *BrokerProvider) capacity() v1.ResourceList {
 
 	// Get available node
 	node := v1.ResourceList{}
-	node[v1.ResourceCPU], _ = stats.CpuCount()
-	node[v1.ResourceMemory], _ = stats.MemoryTotal()
-	node[v1.ResourceStorage], _ = stats.StorageSize()
+	node[v1.ResourceCPU], _ = system.CpuCount()
+	node[v1.ResourceMemory], _ = system.MemoryTotal()
+	node[v1.ResourceStorage], _ = system.StorageSize()
 	node[v1.ResourcePods], _ = resource.ParseQuantity("5") // TODO: get from settings?
 
 	// Get resource requests and limits
@@ -365,7 +365,7 @@ func (p *BrokerProvider) nodeConditions() []v1.NodeCondition {
 		Reason:             "KubeletHasSufficientMemory",
 		Message:            "kubelet has sufficient memory available",
 	}
-	if stats.IsMemoryPressure() {
+	if system.IsMemoryPressure() {
 		memoryPressureCondition.Status = v1.ConditionTrue
 	}
 	// Check for storage conditions
@@ -377,7 +377,7 @@ func (p *BrokerProvider) nodeConditions() []v1.NodeCondition {
 		Reason:             "KubeletHasNoDiskPressure",
 		Message:            "kubelet has no disk pressure",
 	}
-	if stats.IsStoragePressure() {
+	if system.IsStoragePressure() {
 		diskPressureCondition.Status = v1.ConditionTrue
 	}
 	outOfDiskCondition := v1.NodeCondition{
@@ -388,7 +388,7 @@ func (p *BrokerProvider) nodeConditions() []v1.NodeCondition {
 		Reason:             "KubeletHasSufficientDisk",
 		Message:            "kubelet has sufficient disk space available",
 	}
-	if stats.IsStorageFull() {
+	if system.IsStorageFull() {
 		outOfDiskCondition.Status = v1.ConditionTrue
 	}
 	// Check for network conditions
@@ -400,7 +400,7 @@ func (p *BrokerProvider) nodeConditions() []v1.NodeCondition {
 		Reason:             "RouteCreated",
 		Message:            "RouteController created a route",
 	}
-	if !stats.IsNetworkAvailable() {
+	if !system.IsNetworkAvailable() {
 		networkUnavailableCondition.Status = v1.ConditionTrue
 	}
 

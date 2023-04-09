@@ -5,7 +5,6 @@ import (
 	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/reference/docker"
 	"github.com/pkg/errors"
-	"github.com/virtual-kubelet/virtual-kubelet/node/api"
 	"github.com/virtual-kubelet/virtual-kubelet/trace"
 	"gitlab.ilabt.imec.be/fledge/service/pkg/storage"
 	corev1 "k8s.io/api/core/v1"
@@ -119,7 +118,7 @@ func (p *Provider) CreatePod(ctx context.Context, pod *corev1.Pod) error {
 		}
 		// Create instance
 		log.G(ctx).Infof("creating instance %q (backend=%s)", instanceID, im.Backend)
-		err = be.Create(instanceID, c)
+		err = be.CreateInstance(instanceID, c)
 		if err != nil {
 			err = errors.Wrapf(err, "failed to create instance %q", instanceID)
 			log.G(ctx).Error(err)
@@ -280,22 +279,6 @@ func (p *Provider) CreatePod(ctx context.Context, pod *corev1.Pod) error {
 	return nil
 }
 
-// RunInContainer executes a command in a container in the pod, copying data
-// between in/out/err and the container's stdin/stdout/stderr.
-func (p *Provider) RunInContainer(ctx context.Context, namespace, podName, containerName string, cmd []string, attach api.AttachIO) error {
-	ctx, span := trace.StartSpan(ctx, "RunInContainer")
-	defer span.End()
-
-	// Add pod and container attributes to the current span.
-	ctx = addAttributes(ctx, span, namespaceKey, namespace, nameKey, podName, containerNameKey, containerName)
-
-	log.G(ctx).Info("receive RunInContainer %q", podName)
-
-	// TODO Implement
-
-	return errors.New("RunInContainer not implemented")
-}
-
 // GetPodStatus retrieves the status of a pod by name from the provider.
 // The PodStatus returned is expected to be immutable, and may be accessed
 // concurrently outside of the calling goroutine. Therefore it is recommended
@@ -345,4 +328,10 @@ func (p *Provider) DeletePod(ctx context.Context, pod *corev1.Pod) error {
 
 	// TODO: return p.runtime.DeletePod(pod)
 	return errors.Errorf("DeletePod not implemented")
+}
+
+func (p *Provider) getInstance(namespace string, podName string, containerName string) (Instance, bool) {
+	instanceID := joinIdentifierFromParts(namespace, podName, containerName)
+	instance, ok := p.instances[instanceID]
+	return instance, ok
 }

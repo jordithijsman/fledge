@@ -2,7 +2,7 @@ package provider
 
 import (
 	"context"
-	"gitlab.ilabt.imec.be/fledge/service/pkg/stats"
+	"gitlab.ilabt.imec.be/fledge/service/pkg/system"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,7 +33,7 @@ func (p *Provider) nodeAddresses() []corev1.NodeAddress {
 	// Discover hostname
 	nodeHostName := corev1.NodeAddress{
 		Type:    corev1.NodeHostName,
-		Address: stats.HostName(),
+		Address: system.HostName(),
 	}
 	// Discover internal IP
 	nodeInternalIP := corev1.NodeAddress{
@@ -50,9 +50,9 @@ func (p *Provider) nodeCapacity(ctx context.Context) corev1.ResourceList {
 
 	// Get available node
 	node := corev1.ResourceList{}
-	node[corev1.ResourceCPU], _ = stats.CpuCount()
-	node[corev1.ResourceMemory], _ = stats.MemoryTotal()
-	node[corev1.ResourceStorage], _ = stats.StorageSize()
+	node[corev1.ResourceCPU], _ = system.CpuCount()
+	node[corev1.ResourceMemory], _ = system.MemoryTotal()
+	node[corev1.ResourceStorage], _ = system.StorageSize()
 	node[corev1.ResourcePods], _ = resource.ParseQuantity("10") // TODO: get from settings?
 
 	// Get resource requests and limits
@@ -108,7 +108,7 @@ func (p *Provider) nodeConditions() []corev1.NodeCondition {
 		Reason:             "KubeletHasSufficientMemory",
 		Message:            "kubelet has sufficient memory available",
 	}
-	if stats.IsMemoryPressure() {
+	if system.IsMemoryPressure() {
 		memoryPressureCondition.Status = corev1.ConditionTrue
 	}
 	// Check for storage conditions
@@ -120,7 +120,7 @@ func (p *Provider) nodeConditions() []corev1.NodeCondition {
 		Reason:             "KubeletHasNoDiskPressure",
 		Message:            "kubelet has no disk pressure",
 	}
-	if stats.IsStoragePressure() {
+	if system.IsStoragePressure() {
 		diskPressureCondition.Status = corev1.ConditionTrue
 	}
 	outOfDiskCondition := corev1.NodeCondition{
@@ -131,7 +131,7 @@ func (p *Provider) nodeConditions() []corev1.NodeCondition {
 		Reason:             "KubeletHasSufficientDisk",
 		Message:            "kubelet has sufficient disk space available",
 	}
-	if stats.IsStorageFull() {
+	if system.IsStorageFull() {
 		outOfDiskCondition.Status = corev1.ConditionTrue
 	}
 	// Check for network conditions
@@ -143,7 +143,7 @@ func (p *Provider) nodeConditions() []corev1.NodeCondition {
 		Reason:             "RouteCreated",
 		Message:            "RouteController created a route",
 	}
-	if !stats.IsNetworkAvailable() {
+	if !system.IsNetworkAvailable() {
 		networkUnavailableCondition.Status = corev1.ConditionTrue
 	}
 

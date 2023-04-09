@@ -28,9 +28,11 @@ type BackendOld interface {
 }
 
 type Backend interface {
-	Status(instanceID string) (corev1.ContainerStatus, error)
-	Create(instanceID string, instance corev1.Container) error
-	Start(instanceID string) error
-	Kill(instanceID string, signal os.Signal) error
-	Delete(instanceID string) error
+	GetInstanceStatus(instanceID string) (corev1.ContainerStatus, error)
+	CreateInstance(instanceID string, instance corev1.Container) error
+	StartInstance(instanceID string) error
+	KillInstance(instanceID string, signal os.Signal) error
+	DeleteInstance(instanceID string) error
+	GetInstanceLogs(instanceID string, opts api.ContainerLogOpts) (io.ReadCloser, error)
+	RunInInstance(instanceID string, cmd []string, attach api.AttachIO) error
 }

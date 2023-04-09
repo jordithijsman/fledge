@@ -1,31 +1,47 @@
 package provider
 
 import (
-	corev1 "k8s.io/api/core/v1"
-	"os"
+	"context"
+	"github.com/containerd/containerd/log"
+	"github.com/pkg/errors"
+	"github.com/virtual-kubelet/virtual-kubelet/node/api"
+	"github.com/virtual-kubelet/virtual-kubelet/trace"
+	"io"
 )
 
-type Instance struct {
-	ID      string
-	Backend Backend
+// GetContainerLogs retrieves the logs of a container by name from the provider.
+func (p *Provider) GetContainerLogs(ctx context.Context, namespace, podName, containerName string, opts api.ContainerLogOpts) (io.ReadCloser, error) {
+	ctx, span := trace.StartSpan(ctx, "GetContainerLogs")
+	defer span.End()
+
+	// Add pod and container attributes to the current span.
+	ctx = addAttributes(ctx, span, namespaceKey, namespace, nameKey, podName, containerNameKey, containerName)
+
+	log.G(ctx).Info("receive GetContainerLogs %q", podName)
+
+	// Get logs from instance
+	instance, found := p.getInstance(namespace, podName, containerName)
+	if !found {
+		return nil, errors.Errorf("failed to find instance (namespace=%s, podName=%s, containerName=%s)", namespace, podName, containerName)
+	}
+	return instance.Logs(opts)
 }
 
-func (i *Instance) Status() (corev1.ContainerStatus, error) {
-	return i.Backend.Status(i.ID)
-}
+// RunInContainer executes a command in a container in the pod, copying data
+// between in/out/err and the container's stdin/stdout/stderr.
+func (p *Provider) RunInContainer(ctx context.Context, namespace, podName, containerName string, cmd []string, attach api.AttachIO) error {
+	ctx, span := trace.StartSpan(ctx, "RunInContainer")
+	defer span.End()
 
-func (i *Instance) Create(instance corev1.Container) error {
-	return i.Backend.Create(i.ID, instance)
-}
+	// Add pod and container attributes to the current span.
+	ctx = addAttributes(ctx, span, namespaceKey, namespace, nameKey, podName, containerNameKey, containerName)
 
-func (i *Instance) Start() error {
-	return i.Backend.Start(i.ID)
-}
+	log.G(ctx).Info("receive RunInContainer %q", podName)
 
-func (i *Instance) Kill(signal os.Signal) error {
-	return i.Backend.Kill(i.ID, signal)
-}
-
-func (i *Instance) Delete() error {
-	return i.Backend.Delete(i.ID)
+	// Run command inside instance
+	instance, found := p.getInstance(namespace, podName, containerName)
+	if !found {
+		return errors.Errorf("failed to find instance (namespace=%s, podName=%s, containerName=%s)", namespace, podName, containerName)
+	}
+	return instance.Run(cmd, attach)
 }
