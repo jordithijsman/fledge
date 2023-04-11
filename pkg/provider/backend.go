@@ -4,7 +4,7 @@ import (
 	"github.com/virtual-kubelet/virtual-kubelet/node/api"
 	"io"
 	corev1 "k8s.io/api/core/v1"
-	"os"
+	"syscall"
 )
 
 const (
@@ -31,8 +31,10 @@ type Backend interface {
 	GetInstanceStatus(instanceID string) (corev1.ContainerStatus, error)
 	CreateInstance(instanceID string, instance corev1.Container) error
 	StartInstance(instanceID string) error
-	KillInstance(instanceID string, signal os.Signal) error
+	KillInstance(instanceID string, signal syscall.Signal) error
 	DeleteInstance(instanceID string) error
 	GetInstanceLogs(instanceID string, opts api.ContainerLogOpts) (io.ReadCloser, error)
 	RunInInstance(instanceID string, cmd []string, attach api.AttachIO) error
+	CreateVolume(volumeID string, volume corev1.Volume) error
+	DeleteVolume(volumeID string) error
 }

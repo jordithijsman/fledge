@@ -2,8 +2,8 @@ package provider
 
 import (
 	"io"
-	"os"
 	"strings"
+	"syscall"
 
 	"github.com/virtual-kubelet/virtual-kubelet/node/api"
 	corev1 "k8s.io/api/core/v1"
@@ -40,7 +40,7 @@ func (b *DummyBackend) StartInstance(instanceID string) error {
 	return nil
 }
 
-func (b *DummyBackend) KillInstance(instanceID string, signal os.Signal) error {
+func (b *DummyBackend) KillInstance(instanceID string, signal syscall.Signal) error {
 	return nil
 }
 
@@ -53,6 +53,14 @@ func (b *DummyBackend) GetInstanceLogs(instanceID string, opts api.ContainerLogO
 }
 
 func (b *DummyBackend) RunInInstance(instanceID string, cmd []string, attach api.AttachIO) error {
+	return nil
+}
+
+func (b *DummyBackend) CreateVolume(volumeID string, volume corev1.Volume) error {
+	return nil
+}
+
+func (b *DummyBackend) DeleteVolume(volumeID string) error {
 	return nil
 }
 

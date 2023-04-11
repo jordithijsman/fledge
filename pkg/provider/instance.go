@@ -4,7 +4,7 @@ import (
 	"github.com/virtual-kubelet/virtual-kubelet/node/api"
 	"io"
 	corev1 "k8s.io/api/core/v1"
-	"os"
+	"syscall"
 )
 
 type Instance struct {
@@ -24,7 +24,7 @@ func (i *Instance) Start() error {
 	return i.Backend.StartInstance(i.ID)
 }
 
-func (i *Instance) Kill(signal os.Signal) error {
+func (i *Instance) Kill(signal syscall.Signal) error {
 	return i.Backend.KillInstance(i.ID, signal)
 }
 
