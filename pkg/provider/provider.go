@@ -48,11 +48,11 @@ func NewProviderConfig(config Config, nodeName, operatingSystem string, internal
 	for _, e := range config.Enabled {
 		switch e {
 		case BackendContainerd:
-			if backends[e], err = NewDummyBackend(config); err != nil {
+			if backends[e], err = NewContainerdBackend(config); err != nil {
 				return nil, err
 			}
 		case BackendOsv:
-			if backends[e], err = NewDummyBackend(config); err != nil {
+			if backends[e], err = NewOSvBackend(config); err != nil {
 				return nil, err
 			}
 		default:
