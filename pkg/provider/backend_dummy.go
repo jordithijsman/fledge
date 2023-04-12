@@ -40,6 +40,10 @@ func (b *DummyBackend) StartInstance(instanceID string) error {
 	return nil
 }
 
+func (b *DummyBackend) UpdateInstance(instanceID string, instance corev1.Container) error {
+	return nil
+}
+
 func (b *DummyBackend) KillInstance(instanceID string, signal syscall.Signal) error {
 	return nil
 }

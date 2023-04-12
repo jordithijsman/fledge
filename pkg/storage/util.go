@@ -9,7 +9,12 @@ import (
 	"io"
 	"os"
 	"path"
+	"regexp"
 )
+
+func CleanName(name string) string {
+	return regexp.MustCompile(":[0-9]{1,5}").ReplaceAllString(name, "")
+}
 
 func ensureDirRef(r ref.Ref) (ref.Ref, error) {
 	if r.Scheme == "ocidir" {

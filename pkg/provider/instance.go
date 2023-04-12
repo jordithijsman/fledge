@@ -28,6 +28,10 @@ func (i *Instance) Kill(signal syscall.Signal) error {
 	return i.Backend.KillInstance(i.ID, signal)
 }
 
+func (i *Instance) Update(instance corev1.Container) error {
+	return i.Backend.UpdateInstance(i.ID, instance)
+}
+
 func (i *Instance) Delete() error {
 	return i.Backend.DeleteInstance(i.ID)
 }

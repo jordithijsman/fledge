@@ -31,6 +31,7 @@ type Backend interface {
 	GetInstanceStatus(instanceID string) (corev1.ContainerStatus, error)
 	CreateInstance(instanceID string, instance corev1.Container) error
 	StartInstance(instanceID string) error
+	UpdateInstance(instanceID string, instance corev1.Container) error
 	KillInstance(instanceID string, signal syscall.Signal) error
 	DeleteInstance(instanceID string) error
 	GetInstanceLogs(instanceID string, opts api.ContainerLogOpts) (io.ReadCloser, error)

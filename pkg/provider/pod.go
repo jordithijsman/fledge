@@ -23,8 +23,11 @@ func (p *Provider) GetPod(ctx context.Context, namespace, name string) (*corev1.
 
 	log.G(ctx).Debugf("receive GetPod %q", name)
 
-	//TODO: return p.runtime.GetPod(namespace, name)
-	return nil, errors.Errorf("GetPod not implemented")
+	pod, found := p.pods[joinIdentifierFromParts(namespace, name)]
+	if !found {
+		return nil, errors.Errorf("Pod %s/%s not found", namespace, name)
+	}
+	return pod, nil
 }
 
 // GetPods retrieves a list of all pods running on the provider (can be cached).
@@ -37,9 +40,11 @@ func (p *Provider) GetPods(ctx context.Context) ([]*corev1.Pod, error) {
 
 	log.G(ctx).Info("receive GetPods")
 
-	// TODO: return p.runtime.GetPods()
-	return nil, errors.Errorf("GetPods not implemented")
-
+	var pods []*corev1.Pod
+	for _, pod := range p.pods {
+		pods = append(pods, pod)
+	}
+	return pods, nil
 }
 
 // CreatePod takes a Kubernetes Pod and deploys it within the provider.
@@ -81,30 +86,21 @@ func (p *Provider) CreatePod(ctx context.Context, pod *corev1.Pod) error {
 		// Check for name collision just in case
 		instanceID := podAndContainerToIdentifier(pod, c)
 		if _, ok := p.instances[instanceID]; ok {
-			err := errors.Errorf("name collision for instance %q", instanceID)
-			log.G(ctx).Error(err)
-			continue
+			return errors.Errorf("name collision for instance %q", instanceID)
 		}
 
 		// Convert image name to something universal
 		imageRef, err := docker.ParseDockerRef(c.Image)
 		if err != nil {
-			err := errors.Errorf("failed parsing reference %q", c.Image)
-			log.G(ctx).Error(err)
-			continue
+			return errors.Errorf("failed parsing reference %q", c.Image)
 		}
 		c.Image = imageRef.String()
 
-		//// Pull the image locally
-		//r, err := storage.ImagePull(ctx, c.Image)
-		//if err != nil {
-		//	err = errors.Wrapf(err, "failed to pull image %q", c.Image)
-		//	log.G(ctx).Error(err)
-		//	continue
-		//}
-
 		// Get the config of the image to determine the backend
 		im, err := storage.ImageGetConfig(ctx, c.Image)
+		if err != nil {
+			return errors.Wrapf(err, "unable to get image config of %q", c.Image)
+		}
 		// If no backend is defined, it's a non-FLEDGE and should be run with containerd
 		if im.Backend == "" {
 			im.Backend = BackendContainerd
@@ -112,17 +108,13 @@ func (p *Provider) CreatePod(ctx context.Context, pod *corev1.Pod) error {
 		// Check if the required backend is enabled
 		be := p.backends[im.Backend]
 		if be == nil {
-			err = errors.Wrapf(err, "failed to find enabled backend %q", im.Backend)
-			log.G(ctx).Error(err)
-			continue
+			return errors.Wrapf(err, "failed to find enabled backend %q", im.Backend)
 		}
 		// Create instance
 		log.G(ctx).Infof("creating instance %q (backend=%s)", instanceID, im.Backend)
 		err = be.CreateInstance(instanceID, c)
 		if err != nil {
-			err = errors.Wrapf(err, "failed to create instance %q", instanceID)
-			log.G(ctx).Error(err)
-			continue
+			return errors.Wrapf(err, "failed to create instance %q", instanceID)
 		}
 		instance := Instance{ID: instanceID, Backend: be}
 		instancesToStart = append(instancesToStart, instance)
@@ -292,12 +284,12 @@ func (p *Provider) GetPodStatus(ctx context.Context, namespace, name string) (*c
 
 	log.G(ctx).Debugf("receive GetPodStatus %q", name)
 
-	//TODO pod, err := p.runtime.GetPod(namespace, name)
-	//if err != nil {
-	//	return nil, err
-	//}
-	//return &pod.Status, nil
-	return nil, errors.New("GetPodStatus not implemented")
+	// Return status field of pod (TODO: Update the actual status constantly)
+	pod, err := p.GetPod(ctx, namespace, name)
+	if err != nil {
+		return nil, err
+	}
+	return &pod.Status, nil
 }
 
 // UpdatePod takes a Kubernetes Pod and updates it within the provider.
@@ -310,7 +302,7 @@ func (p *Provider) UpdatePod(ctx context.Context, pod *corev1.Pod) error {
 
 	log.G(ctx).Debugf("receive UpdatePod %q", pod.Name)
 
-	// TODO: return p.runtime.UpdatePod(pod)
+	// TODO: backend.UpdateContainer
 	return errors.Errorf("UpdatePod not implemented")
 }
 

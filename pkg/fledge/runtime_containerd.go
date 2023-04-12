@@ -18,7 +18,7 @@ import (
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
 	"io"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -34,7 +34,7 @@ type ContainerdRuntime struct {
 
 	client                   *containerd.Client
 	containerNameTaskMapping map[string]PodContainer
-	podSpecs                 map[string]*v1.Pod
+	podSpecs                 map[string]*corev1.Pod
 	ctx                      context.Context
 	podsChanged              bool
 }
@@ -49,7 +49,7 @@ func NewContainerdRuntime(cfg BrokerConfig) (*ContainerdRuntime, error) {
 		config:                   cfg,
 		client:                   client,
 		containerNameTaskMapping: make(map[string]PodContainer),
-		podSpecs:                 make(map[string]*v1.Pod),
+		podSpecs:                 make(map[string]*corev1.Pod),
 		ctx:                      namespaces.WithNamespace(context.Background(), "default"),
 		podsChanged:              false,
 	}
@@ -80,7 +80,7 @@ func (cr *ContainerdRuntime) PollLoop() {
 	}
 }
 
-func (cr *ContainerdRuntime) GetPod(namespace string, name string) (*v1.Pod, error) {
+func (cr *ContainerdRuntime) GetPod(namespace string, name string) (*corev1.Pod, error) {
 	pod, found := cr.podSpecs[namespace+"_"+name]
 	if !found {
 		return nil, errors.New("Pod not found")
@@ -88,15 +88,15 @@ func (cr *ContainerdRuntime) GetPod(namespace string, name string) (*v1.Pod, err
 	return pod, nil
 }
 
-func (cr *ContainerdRuntime) GetPods() ([]*v1.Pod, error) {
-	var pods []*v1.Pod
+func (cr *ContainerdRuntime) GetPods() ([]*corev1.Pod, error) {
+	var pods []*corev1.Pod
 	for _, pod := range cr.podSpecs {
 		pods = append(pods, pod)
 	}
 	return pods, nil
 }
 
-func (cr *ContainerdRuntime) GetContainerName(namespace string, pod v1.Pod, dc v1.Container) string {
+func (cr *ContainerdRuntime) GetContainerName(namespace string, pod corev1.Pod, dc corev1.Container) string {
 	return namespace + "_" + pod.ObjectMeta.Name + "_" + dc.Name
 }
 
@@ -104,7 +104,7 @@ func (cr *ContainerdRuntime) GetContainerNameAlt(namespace string, podName strin
 	return namespace + "_" + podName + "_" + dcName
 }
 
-func (cr *ContainerdRuntime) CreatePod(pod *v1.Pod) error {
+func (cr *ContainerdRuntime) CreatePod(pod *corev1.Pod) error {
 	namespace := pod.ObjectMeta.Namespace
 
 	cr.podSpecs[namespace+"_"+pod.ObjectMeta.Name] = pod
@@ -117,7 +117,7 @@ func (cr *ContainerdRuntime) CreatePod(pod *v1.Pod) error {
 	CreateVolumes(cr.ctx, pod)
 
 	initContainers := false
-	var containers []v1.Container
+	var containers []corev1.Container
 	if len(pod.Spec.InitContainers) > 0 {
 		initContainers = true
 		containers = pod.Spec.InitContainers
@@ -151,15 +151,15 @@ func ValidPrefix(tagPrefix string) bool {
 	return false
 }
 
-func (cr *ContainerdRuntime) SetupPorts(pod *v1.Pod, dc *v1.Container) {
+func (cr *ContainerdRuntime) SetupPorts(pod *corev1.Pod, dc *corev1.Container) {
 	//TODO!
 }
 
-func (cr *ContainerdRuntime) CleanupPorts(pod *v1.Pod, dc *v1.Container) {
+func (cr *ContainerdRuntime) CleanupPorts(pod *corev1.Pod, dc *corev1.Container) {
 
 }
 
-func (cr *ContainerdRuntime) CreateContainer(namespace string, pod *v1.Pod, dc *v1.Container) (string, error) {
+func (cr *ContainerdRuntime) CreateContainer(namespace string, pod *corev1.Pod, dc *corev1.Container) (string, error) {
 	fullName := cr.GetContainerName(namespace, *pod, *dc)
 	envVars := GetEnvAsStringArray(dc)
 
@@ -200,8 +200,8 @@ func (cr *ContainerdRuntime) CreateContainer(namespace string, pod *v1.Pod, dc *
 
 	//pull image + policy
 	image, err := cr.client.GetImage(cr.ctx, imageString)
-	if (err != nil && dc.ImagePullPolicy == v1.PullIfNotPresent) || dc.ImagePullPolicy == v1.PullAlways {
-		if dc.ImagePullPolicy == v1.PullAlways {
+	if (err != nil && dc.ImagePullPolicy == corev1.PullIfNotPresent) || dc.ImagePullPolicy == corev1.PullAlways {
+		if dc.ImagePullPolicy == corev1.PullAlways {
 			cr.client.ImageService().Delete(cr.ctx, imageString)
 		}
 		image, err = cr.client.Pull(cr.ctx, imageString, containerd.WithPullUnpack)
@@ -317,12 +317,12 @@ func (cr *ContainerdRuntime) CreateContainer(namespace string, pod *v1.Pod, dc *
 }
 
 /* TODO:
-func CheckGpuResourceRequired(dc *v1.Container) (bool, error) {
+func CheckGpuResourceRequired(dc *corev1.Container) (bool, error) {
 	if dc.Resources.Limits == nil {
-		dc.Resources.Limits = v1.ResourceList{}
+		dc.Resources.Limits = corev1.ResourceList{}
 	}
 	if dc.Resources.Requests == nil {
-		dc.Resources.Requests = v1.ResourceList{}
+		dc.Resources.Requests = corev1.ResourceList{}
 	}
 
 	cudaLimit := dc.Resources.Limits["device/cudagpu"]
@@ -348,7 +348,7 @@ func CheckGpuResourceRequired(dc *v1.Container) (bool, error) {
 }
 */
 
-func (cr *ContainerdRuntime) SetupPodIPs(pod *v1.Pod, task containerd.Task) {
+func (cr *ContainerdRuntime) SetupPodIPs(pod *corev1.Pod, task containerd.Task) {
 	// TODO: pod.Status.HostIP = config.Cfg.DeviceIP
 	if pod.Status.PodIP == "" {
 		if pod.Spec.HostNetwork {
@@ -362,7 +362,7 @@ func (cr *ContainerdRuntime) SetupPodIPs(pod *v1.Pod, task containerd.Task) {
 	}
 }
 
-func (cr *ContainerdRuntime) BuildMounts(pod *v1.Pod, dc *v1.Container) []specs.Mount {
+func (cr *ContainerdRuntime) BuildMounts(pod *corev1.Pod, dc *corev1.Container) []specs.Mount {
 	mounts := []specs.Mount{}
 	//mountNames := make(map[string]struct{})
 	for _, cVol := range dc.VolumeMounts {
@@ -375,10 +375,10 @@ func (cr *ContainerdRuntime) BuildMounts(pod *v1.Pod, dc *v1.Container) []specs.
 	return mounts
 }
 
-func (cr *ContainerdRuntime) CreateMount(pod *v1.Pod, volMount v1.VolumeMount) *specs.Mount {
+func (cr *ContainerdRuntime) CreateMount(pod *corev1.Pod, volMount corev1.VolumeMount) *specs.Mount {
 	//fmt.Printf("Creating mount for volumemount %s\n", volMount.Name)
 	vName := volMount.Name
-	var volume v1.Volume
+	var volume corev1.Volume
 
 	for _, vol := range pod.Spec.Volumes {
 		if vol.Name == vName {
@@ -418,7 +418,7 @@ func (cr *ContainerdRuntime) CreateMount(pod *v1.Pod, volMount v1.VolumeMount) *
 
 }
 
-func (cr *ContainerdRuntime) SetContainerResources(namespace string, podname string, dc *v1.Container) string {
+func (cr *ContainerdRuntime) SetContainerResources(namespace string, podname string, dc *corev1.Container) string {
 	//some default values
 	oneCpu, _ := resource.ParseQuantity("1")
 	defaultMem, _ := resource.ParseQuantity("150Mi")
@@ -432,23 +432,23 @@ func (cr *ContainerdRuntime) SetContainerResources(namespace string, podname str
 	var memLimit int64
 
 	if dc.Resources.Limits == nil {
-		dc.Resources.Limits = v1.ResourceList{}
+		dc.Resources.Limits = corev1.ResourceList{}
 	}
 	if dc.Resources.Requests == nil {
-		dc.Resources.Requests = v1.ResourceList{}
+		dc.Resources.Requests = corev1.ResourceList{}
 	}
 	memory := dc.Resources.Limits.Memory()
 	if memory.IsZero() {
 		//if the memory limit isn't filled in, set it to request
 		memory = dc.Resources.Requests.Memory()
-		dc.Resources.Limits[v1.ResourceMemory] = *memory
+		dc.Resources.Limits[corev1.ResourceMemory] = *memory
 	}
 	if !memory.IsZero() {
 		memLimit = memory.Value()
 	} else {
 		//this means neither was set, so update both limit and request with a default value
-		dc.Resources.Limits[v1.ResourceMemory] = defaultMem
-		dc.Resources.Requests[v1.ResourceMemory] = defaultMem
+		dc.Resources.Limits[corev1.ResourceMemory] = defaultMem
+		dc.Resources.Requests[corev1.ResourceMemory] = defaultMem
 		memLimit = 150 * 1024 * 1024 //150 Mi
 	}
 
@@ -457,13 +457,13 @@ func (cr *ContainerdRuntime) SetContainerResources(namespace string, podname str
 		if cpu.IsZero() {
 			//same if cpu limit isn't filled in
 			cpu = dc.Resources.Requests.Cpu()
-			dc.Resources.Limits[v1.ResourceCPU] = *cpu
+			dc.Resources.Limits[corev1.ResourceCPU] = *cpu
 		}
 		if !cpu.IsZero() {
 			cpuLimit = float64(cpu.MilliValue()) / 1000.0
 		} else {
-			dc.Resources.Limits[v1.ResourceCPU] = oneCpu
-			dc.Resources.Requests[v1.ResourceCPU] = oneCpu
+			dc.Resources.Limits[corev1.ResourceCPU] = oneCpu
+			dc.Resources.Requests[corev1.ResourceCPU] = oneCpu
 			cpuLimit = 1 // 1 CPU
 		}
 	}
@@ -474,7 +474,7 @@ func (cr *ContainerdRuntime) SetContainerResources(namespace string, podname str
 	return cgroup
 }
 
-func (cr *ContainerdRuntime) UpdatePod(pod *v1.Pod) error {
+func (cr *ContainerdRuntime) UpdatePod(pod *corev1.Pod) error {
 	containers := pod.Spec.Containers
 	namespace := pod.ObjectMeta.Namespace
 
@@ -489,12 +489,12 @@ func (cr *ContainerdRuntime) UpdatePod(pod *v1.Pod) error {
 	return nil
 }
 
-func (cr *ContainerdRuntime) UpdateContainer(namespace string, pod *v1.Pod, dc *v1.Container) {
+func (cr *ContainerdRuntime) UpdateContainer(namespace string, pod *corev1.Pod, dc *corev1.Container) {
 	cr.StopContainer(namespace, pod, dc)
 	cr.CreateContainer(namespace, pod, dc)
 }
 
-func (cr *ContainerdRuntime) DeletePod(pod *v1.Pod) error {
+func (cr *ContainerdRuntime) DeletePod(pod *corev1.Pod) error {
 	containers := pod.Spec.Containers
 	namespace := pod.ObjectMeta.Namespace
 
@@ -512,7 +512,7 @@ func (cr *ContainerdRuntime) DeletePod(pod *v1.Pod) error {
 	return nil
 }
 
-func (cr *ContainerdRuntime) StopContainer(namespace string, pod *v1.Pod, dc *v1.Container) bool {
+func (cr *ContainerdRuntime) StopContainer(namespace string, pod *corev1.Pod, dc *corev1.Container) bool {
 	fullName := cr.GetContainerName(namespace, *pod, *dc) //namespace + "_" + pod.ObjectMeta.Name + "_" + dc.Name
 	fmt.Printf("Stopping container %s\n", fullName)
 
@@ -541,7 +541,7 @@ func (cr *ContainerdRuntime) StopContainer(namespace string, pod *v1.Pod, dc *v1
 	return true
 }
 
-func (cr *ContainerdRuntime) UpdatePodStatus(namespace string, pod *v1.Pod) {
+func (cr *ContainerdRuntime) UpdatePodStatus(namespace string, pod *corev1.Pod) {
 	// TODO: pod.Status.HostIP = config.Cfg.DeviceIP
 	fmt.Printf("Update pod status %s\n", pod.ObjectMeta.Name)
 	latestStatus := GetHighestPodStatus(pod)
@@ -551,14 +551,14 @@ func (cr *ContainerdRuntime) UpdatePodStatus(namespace string, pod *v1.Pod) {
 	}
 	fmt.Printf("Pod %s status %s\n", pod.ObjectMeta.Name, latestStatus.Type)
 	switch latestStatus.Type {
-	case v1.PodReady:
+	case corev1.PodReady:
 		fmt.Println("Pod ready, just updating")
 		//everything good, just update statuses
 		//check pod status phases running or succeeded
 		cr.UpdateContainerStatuses(namespace, pod, *latestStatus)
 		//cr.SetupPodIPs(pod)
-	case v1.PodInitialized:
-		if latestStatus.Status == v1.ConditionTrue {
+	case corev1.PodInitialized:
+		if latestStatus.Status == corev1.ConditionTrue {
 			fmt.Println("Pod initialized, just updating and upgrading to ready if possible")
 			//update statuses, check for PodReady, check for phase running
 			cr.UpdateContainerStatuses(namespace, pod, *latestStatus)
@@ -567,32 +567,32 @@ func (cr *ContainerdRuntime) UpdatePodStatus(namespace string, pod *v1.Pod) {
 			//check init containers
 			cr.CheckInitContainers(namespace, pod)
 		}
-	case v1.PodReasonUnschedulable:
+	case corev1.PodReasonUnschedulable:
 		fmt.Println("Pod unschedulable, ignoring")
 		//don't do anything really
-	case v1.PodScheduled:
+	case corev1.PodScheduled:
 		fmt.Println("Pod Scheduled, ignoring")
 		//don't do anything either
 	}
 }
 
-func (cr *ContainerdRuntime) CheckInitContainers(namespace string, pod *v1.Pod) {
+func (cr *ContainerdRuntime) CheckInitContainers(namespace string, pod *corev1.Pod) {
 	//ctx := namespaces.WithNamespace(context.Background(), namespace)
 	allContainersDone := true
 	noErrors := true
 
-	containerStatuses := []v1.ContainerStatus{}
+	containerStatuses := []corev1.ContainerStatus{}
 	for _, cont := range pod.Spec.Containers {
 		fullName := cr.GetContainerNameAlt(namespace, pod.ObjectMeta.Name, cont.Name)
 		tuple, found := cr.containerNameTaskMapping[fullName]
 		if found {
-			state := v1.ContainerState{}
+			state := corev1.ContainerState{}
 
 			taskStatus, _ := tuple.task.Status(cr.ctx)
 			switch taskStatus.Status { //contJSON.State.Status {
 			case containerd.Created: //"created":
 				allContainersDone = false
-				state.Waiting = &v1.ContainerStateWaiting{
+				state.Waiting = &corev1.ContainerStateWaiting{
 					Reason:  "Starting",
 					Message: "Starting container",
 				}
@@ -602,14 +602,14 @@ func (cr *ContainerdRuntime) CheckInitContainers(namespace string, pod *v1.Pod) 
 				fallthrough
 			case containerd.Pausing: //"restarting":
 				allContainersDone = false
-				state.Running = &v1.ContainerStateRunning{ //add real time later
+				state.Running = &corev1.ContainerStateRunning{ //add real time later
 					StartedAt: metav1.Now(),
 				}
 			case containerd.Stopped: //"dead":
 				if taskStatus.ExitStatus > 0 {
 					noErrors = false
 				}
-				state.Terminated = &v1.ContainerStateTerminated{
+				state.Terminated = &corev1.ContainerStateTerminated{
 					Reason:      "Stopped",
 					Message:     "Container stopped",
 					FinishedAt:  metav1.Now(), //add real time later
@@ -617,7 +617,7 @@ func (cr *ContainerdRuntime) CheckInitContainers(namespace string, pod *v1.Pod) 
 				}
 			}
 
-			status := v1.ContainerStatus{
+			status := corev1.ContainerStatus{
 				Name:         cont.Name,
 				State:        state,
 				Ready:        false,
@@ -627,7 +627,7 @@ func (cr *ContainerdRuntime) CheckInitContainers(namespace string, pod *v1.Pod) 
 				ContainerID:  tuple.container.ID(),
 			}
 
-			containerStatuses = []v1.ContainerStatus{status}
+			containerStatuses = []corev1.ContainerStatus{status}
 		}
 	}
 	pod.Status.ContainerStatuses = containerStatuses
@@ -641,25 +641,25 @@ func (cr *ContainerdRuntime) CheckInitContainers(namespace string, pod *v1.Pod) 
 	UpdateInitPodStatus(pod, noErrors, allContainersDone)
 }
 
-func (cr *ContainerdRuntime) UpdateContainerStatuses(namespace string, pod *v1.Pod, podStatus v1.PodCondition) {
+func (cr *ContainerdRuntime) UpdateContainerStatuses(namespace string, pod *corev1.Pod, podStatus corev1.PodCondition) {
 	//ctx := namespaces.WithNamespace(context.Background(), namespace)
 	allContainersRunning := true
 	allContainersDone := true
 	noErrors := true
 
-	containerStatuses := []v1.ContainerStatus{}
+	containerStatuses := []corev1.ContainerStatus{}
 	for _, cont := range pod.Spec.Containers {
 		fullName := cr.GetContainerNameAlt(namespace, pod.ObjectMeta.Name, cont.Name)
 		tuple, found := cr.containerNameTaskMapping[fullName]
 		if found {
-			state := v1.ContainerState{}
+			state := corev1.ContainerState{}
 
 			taskStatus, _ := tuple.task.Status(cr.ctx)
 			switch taskStatus.Status { //contJSON.State.Status {
 			case "created":
 				allContainersRunning = false
 				allContainersDone = false
-				state.Waiting = &v1.ContainerStateWaiting{
+				state.Waiting = &corev1.ContainerStateWaiting{
 					Reason:  "Starting",
 					Message: "Starting container",
 				}
@@ -669,7 +669,7 @@ func (cr *ContainerdRuntime) UpdateContainerStatuses(namespace string, pod *v1.P
 				fallthrough
 			case "restarting":
 				allContainersDone = false
-				state.Running = &v1.ContainerStateRunning{ //add real time later
+				state.Running = &corev1.ContainerStateRunning{ //add real time later
 					StartedAt: metav1.Now(),
 				}
 			case "removing":
@@ -680,7 +680,7 @@ func (cr *ContainerdRuntime) UpdateContainerStatuses(namespace string, pod *v1.P
 				if taskStatus.ExitStatus > 0 { //contJSON.State.ExitCode > 0 {
 					noErrors = false
 				}
-				state.Terminated = &v1.ContainerStateTerminated{
+				state.Terminated = &corev1.ContainerStateTerminated{
 					Reason:      "Stopped",
 					Message:     "Container stopped",
 					FinishedAt:  metav1.Now(), //add real time later
@@ -688,7 +688,7 @@ func (cr *ContainerdRuntime) UpdateContainerStatuses(namespace string, pod *v1.P
 				}
 			}
 
-			status := v1.ContainerStatus{
+			status := corev1.ContainerStatus{
 				Name:         cont.Name,
 				State:        state,
 				Ready:        false,
@@ -698,7 +698,7 @@ func (cr *ContainerdRuntime) UpdateContainerStatuses(namespace string, pod *v1.P
 				ContainerID:  tuple.container.ID(),
 			}
 
-			containerStatuses = []v1.ContainerStatus{status}
+			containerStatuses = []corev1.ContainerStatus{status}
 		}
 	}
 	changed := UpdatePodStatus(podStatus, containerStatuses, pod, noErrors, allContainersRunning, allContainersDone)

@@ -104,6 +104,7 @@ func (b *ContainerdBackend) GetInstanceStatus(instanceID string) (corev1.Contain
 }
 
 func (b *ContainerdBackend) CreateInstance(instanceID string, instance corev1.Container) error {
+	// Container.Image
 	image, err := b.client.GetImage(b.context, instance.Image)
 	if (err != nil && instance.ImagePullPolicy == corev1.PullIfNotPresent) || instance.ImagePullPolicy == corev1.PullAlways {
 		if instance.ImagePullPolicy == corev1.PullAlways {
@@ -198,6 +199,11 @@ func (b *ContainerdBackend) StartInstance(instanceID string) error {
 		return errors.Wrap(err, "containerd")
 	}
 
+	return nil
+}
+
+func (b *ContainerdBackend) UpdateInstance(instanceID string, instance corev1.Container) error {
+	// TODO
 	return nil
 }
 

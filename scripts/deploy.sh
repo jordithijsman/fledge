@@ -12,4 +12,4 @@ ssh worker0 pkill fledge || true
 scp "default.json" "backend.json" "broker.json" "./out/$(go env GOHOSTOS)/$(go env GOHOSTARCH)/fledge" "worker0:~"
 
 # Run FLEDGE
-ssh worker0 sudo KUBECONFIG=~/.kube/kubeconfig.yml KUBERNETES_SERVICE_HOST=10.2.0.118 KUBERNETES_SERVICE_PORT=6443 ./fledge $@
+ssh -t worker0 sudo KUBECONFIG=~/.kube/kubeconfig.yml KUBERNETES_SERVICE_HOST=10.2.0.118 KUBERNETES_SERVICE_PORT=6443 ./fledge $@
