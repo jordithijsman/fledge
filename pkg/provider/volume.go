@@ -1,14 +1,29 @@
 package provider
 
-// Volume describes what volumes should be created.
-type Volume int
+import corev1 "k8s.io/api/core/v1"
 
-const (
-	volumeAll Volume = iota
-	volumeConfigMap
-	volumeSecret
-)
+type Volume struct {
+	ID      string
+	Backend Backend
+}
 
+func (v *Volume) Create(volume corev1.Volume) error {
+	return v.Backend.CreateVolume(v.ID, volume)
+}
+
+func (v *Volume) Delete() error {
+	return v.Backend.DeleteVolume(v.ID)
+}
+
+//// Volume describes what volumes should be created.
+//type Volume int
+//
+//const (
+//	volumeAll Volume = iota
+//	volumeConfigMap
+//	volumeSecret
+//)
+//
 //// volumes inspects the PodSpec.Volumes attribute and returns a mapping with the volume's Name and the directory on-disk that
 //// should be used for this. The on-disk structure is prepared and can be used.
 //// which considered what volumes should be setup. Defaults to volumeAll

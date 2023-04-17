@@ -275,10 +275,44 @@ func (b *OSvBackend) RunInInstance(instanceID string, cmd []string, attach api.A
 }
 
 func (b *OSvBackend) CreateVolume(volumeID string, volume corev1.Volume) error {
+	// Create volumes directory
+	volumesDir := b.volumesDir()
+	if _, err := os.Stat(volumesDir); os.IsNotExist(err) {
+		if err = os.Mkdir(volumesDir, 0755); err != nil {
+			return errors.Wrap(err, "osv")
+		}
+	}
+
+	//// TODO: This is only required for local things
+	//if volume.HostPath != nil && volume.HostPath.Type != nil {
+	//	path := volume.HostPath.Path
+	//}
+
+	// TODO: hostDir with virtiofs?
+	// https://github.com/cloudius-systems/osv/wiki/virtio-fs
+
+	//// Create volume
+	//volume.H
+	//volumePath := b.volumePath(volumeID)
+	//volumeSize := volume.()
+	//if volumeSize == 0 {
+	//	volumeSize = 512
+	//}
+	//if err := qemu.CreateVolume(volumePath, "raw", int64(volumeSize)); err != nil {
+	//	return errors.Wrap(err, "osv")
+	//}
+
+	// TODO: Persist medata?
 	return nil
 }
 
 func (b *OSvBackend) DeleteVolume(volumeID string) error {
+	// Delete volume
+	volumePath := b.volumePath(volumeID)
+	if err := os.RemoveAll(volumePath); os.IsNotExist(err) {
+		err = errors.Errorf("volume %q does not exist", volumeID)
+		return errors.Wrap(err, "osv")
+	}
 	return nil
 }
 
@@ -323,6 +357,15 @@ func (b *OSvBackend) instanceSockPath(instanceID string) string {
 
 func (b *OSvBackend) instanceLogsPath(instanceID string) string {
 	return filepath.Join(b.instanceDir(instanceID), "osv.logs")
+}
+
+func (b *OSvBackend) volumesDir() string {
+	return filepath.Join(capstan.ConfigDir(), "volumes/qemu")
+}
+
+func (b *OSvBackend) volumePath(volumeID string) string {
+	volumesDir := b.volumesDir()
+	return filepath.Join(volumesDir, volumeID)
 }
 
 // pullInstanceImage pulls the image into a local capstan repository

@@ -61,12 +61,10 @@ func (p *Provider) CreatePod(ctx context.Context, pod *corev1.Pod) error {
 	podID := podToIdentifier(pod)
 	p.pods[podID] = pod
 
-	// Create volumes
-	//vol, err := p.volumes(pod, volumeAll)
-	//if err != nil {
-	//	err = errors.Join(err, errors.New("failed to process Pod volumes"))
-	//	log.G(ctx).Error(err)
-	//	return err
+	//// TODO: Parse volumes but create them on-demand in the provider
+	//var volumesToCreate map[string]corev1.Volume
+	//for _, v := range pod.Spec.Volumes {
+	//	volumesToCreate[v.Name] = v
 	//}
 
 	// Get Uid and Gid
@@ -110,6 +108,25 @@ func (p *Provider) CreatePod(ctx context.Context, pod *corev1.Pod) error {
 		if be == nil {
 			return errors.Wrapf(err, "failed to find enabled backend %q", im.Backend)
 		}
+		//// TODO: Create volumes on-demand in backend (this is only for Volume.Projected)
+		//for _, vm := range c.VolumeMounts {
+		//	volume, ok := volumesToCreate[vm.Name]
+		//	if !ok {
+		//		return errors.Errorf("failed to find volume %q in spec", vm.Name)
+		//	}
+		//	volumeID := podAndVolumeToIdentifier(pod, volume)
+		//	v, ok := p.volumes[volumeID]
+		//	if !ok {
+		//		v = Volume{ID: volumeID, Backend: be}
+		//		if err = v.Create(volume); err != nil {
+		//			return errors.Wrapf(err, "failed to create volume %q", volumeID)
+		//		}
+		//		p.volumes[volumeID] = v
+		//	}
+		//	if v.Backend != be {
+		//		return errors.Errorf("volume %q is used across backends, this is not supported", volumeID)
+		//	}
+		//}
 		// Create instance
 		log.G(ctx).Infof("creating instance %q (backend=%s)", instanceID, im.Backend)
 		err = be.CreateInstance(instanceID, c)
@@ -333,7 +350,16 @@ func (p *Provider) DeletePod(ctx context.Context, pod *corev1.Pod) error {
 		}
 	}
 
-	// TODO: Delete volumes? Actually we need to check volume claims etc.
+	// Delete volumes
+	for _, v := range pod.Spec.Volumes {
+		// Delete volume
+		volumeID := podAndVolumeToIdentifier(pod, v)
+		volume, found := p.instances[volumeID]
+		if found {
+			log.G(ctx).Debugf("deleting volume %q", volumeID)
+			volume.Delete()
+		}
+	}
 
 	return nil
 }
@@ -341,5 +367,11 @@ func (p *Provider) DeletePod(ctx context.Context, pod *corev1.Pod) error {
 func (p *Provider) getInstance(namespace string, podName string, containerName string) (Instance, bool) {
 	instanceID := joinIdentifierFromParts(namespace, podName, containerName)
 	instance, ok := p.instances[instanceID]
+	return instance, ok
+}
+
+func (p *Provider) getVolume(namespace string, podName string, volumeName string) (Volume, bool) {
+	instanceID := joinIdentifierFromParts(namespace, podName, volumeName)
+	instance, ok := p.volumes[instanceID]
 	return instance, ok
 }

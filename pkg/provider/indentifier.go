@@ -18,6 +18,10 @@ func podAndContainerToIdentifier(pod *corev1.Pod, container corev1.Container) st
 	return joinIdentifierFromParts(podToIdentifier(pod), container.Name)
 }
 
+func podAndVolumeToIdentifier(pod *corev1.Pod, volume corev1.Volume) string {
+	return joinIdentifierFromParts(podToIdentifier(pod), volume.Name)
+}
+
 func filterIdentifiersByPrefix(ids []string, prefix string) (ret []string) {
 	prefix = joinIdentifierFromParts(prefix, "")
 	for _, id := range ids {
