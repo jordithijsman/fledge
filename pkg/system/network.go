@@ -24,3 +24,16 @@ func IsNetworkAvailable() bool {
 	_, err := util.ExecShellCommand("ping -c1 1.1.1.1")
 	return err == nil
 }
+
+func AvailablePort() (int, error) {
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		return 0, err
+	}
+	l, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port, nil
+}

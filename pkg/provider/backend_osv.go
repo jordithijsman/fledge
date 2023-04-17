@@ -12,11 +12,13 @@ import (
 	"github.com/regclient/regclient/types"
 	"github.com/regclient/regclient/types/ref"
 	"gitlab.ilabt.imec.be/fledge/service/pkg/storage"
+	"gitlab.ilabt.imec.be/fledge/service/pkg/system"
 	"golang.org/x/net/context"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -83,10 +85,30 @@ func (b *OSvBackend) CreateInstance(instanceID string, instance corev1.Container
 	// Container.Command
 	cmd := strings.Join(append(instance.Command, instance.Args...), " ")
 	// Container.WorkingDir (TODO)
-	// Container.Ports (TODO)
+	// Container.Ports
+	networking := "bridge"
+	if len(instance.Ports) > 0 {
+		networking = "nat"
+	}
+	natRules := make([]nat.Rule, 0)
+	for _, p := range instance.Ports {
+		// TODO: Support for HostIP?
+		// TODO: Do we need NAT or can we do Bridge? Use p.HostPort?
+		hostPort, err := system.AvailablePort()
+		if err == nil {
+			natRules = append(natRules, nat.Rule{
+				HostPort:  strconv.FormatInt(int64(hostPort), 10),
+				GuestPort: strconv.FormatInt(int64(p.ContainerPort), 10),
+			})
+		} else {
+			log.G(b.context).Error(errors.Wrap(err, "osv backend"))
+		}
+	}
 	// Container.EnvFrom (TODO)
 	// Container.Env (TODO)
 	// Container.Resources (TODO)
+	memory := 1024
+	cpus := 1
 	// Container.VolumeMounts (TODO)
 	// Container.VolumeDevices (TODO)
 	// Container.LivenessProbe (TODO)
@@ -115,13 +137,14 @@ func (b *OSvBackend) CreateInstance(instanceID string, instance corev1.Container
 			AioType:     b.repo.QemuAioType,
 			Image:       image,
 			BackingFile: true,
-			Volumes:     []string{},   // TODO
-			Memory:      0,            // TODO
-			Cpus:        0,            // TODO
-			Networking:  "bridge",     // TODO
-			Bridge:      "virbr0",     // TODO
-			NatRules:    []nat.Rule{}, // TODO
-			MAC:         "",           // TODO
+			Volumes:     []string{}, // TODO
+			Memory:      int64(memory),
+			Cpus:        cpus,
+			Networking:  networking,
+			Bridge:      "virbr0", // TODO
+			NatRules:    natRules,
+			MAC:         "", // TODO
+			VNCFile:     b.instanceSockPath(instanceID),
 		}
 		if err = os.MkdirAll(dir, 0755); err != nil {
 			return errors.Wrap(err, "osv")
@@ -292,6 +315,10 @@ func (b *OSvBackend) instanceConfPath(instanceID string) string {
 
 func (b *OSvBackend) instanceMoniPath(instanceID string) string {
 	return filepath.Join(b.instanceDir(instanceID), "osv.monitor")
+}
+
+func (b *OSvBackend) instanceSockPath(instanceID string) string {
+	return filepath.Join(b.instanceDir(instanceID), "osv.socket")
 }
 
 func (b *OSvBackend) instanceLogsPath(instanceID string) string {

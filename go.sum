@@ -152,8 +152,8 @@ github.com/cilium/ebpf v0.6.2/go.mod h1:4tRaxcgiL706VnOzHOdBlY8IEAIdxINsQBcU4xJJ
 github.com/cilium/ebpf v0.7.0 h1:1k/q3ATgxSXRdrmPfH8d7YK0GfqVsEKZAX9dQZvs56k=
 github.com/cilium/ebpf v0.7.0/go.mod h1:/oI2+1shJiTGAMgl6/RgJr36Eo1jzrRcAWbcXO2usCA=
 github.com/client9/misspell v0.3.4/go.mod h1:qj6jICC3Q7zFZvVWo7KLAzC3yx5G7kyvSDkc90ppPyw=
-github.com/cloudius-systems/capstan v0.5.0 h1:fbDDIw9eFTV2fnNpFGpUooJN+Nd286Ph9qj1NyNBWEA=
-github.com/cloudius-systems/capstan v0.5.0/go.mod h1:0rJdyW463CFHiDBrxhu5Y9WGLQ42frX+CfBh4Hemg+o=
+github.com/cloudius-systems/capstan v0.5.1-0.20230123050333-de91c4edf585 h1:CARJ/25zWQSXaPHYr1xc6huvxuo/KeuwCATowe4Sf/c=
+github.com/cloudius-systems/capstan v0.5.1-0.20230123050333-de91c4edf585/go.mod h1:rHNjgQXkkXrr8vWsTFdYuc626koohTTcp/OA4LV9bFw=
 github.com/cncf/udpa/go v0.0.0-20191209042840-269d4d468f6f/go.mod h1:M8M6+tZqaGXZJjfX53e64911xZQV5JYwmTeXPW+k8Sc=
 github.com/cncf/udpa/go v0.0.0-20200629203442-efcf912fb354/go.mod h1:WmhPx2Nbnhtbo57+VJT5O0JRkEi1Wbu0z5j0R8u5Hbk=
 github.com/cncf/udpa/go v0.0.0-20201120205902-5459f2c99403/go.mod h1:WmhPx2Nbnhtbo57+VJT5O0JRkEi1Wbu0z5j0R8u5Hbk=

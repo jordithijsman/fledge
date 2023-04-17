@@ -300,10 +300,11 @@ func (p *Provider) UpdatePod(ctx context.Context, pod *corev1.Pod) error {
 	// Add the pod's coordinates to the current span.
 	ctx = addAttributes(ctx, span, namespaceKey, pod.Namespace, nameKey, pod.Name)
 
-	log.G(ctx).Debugf("receive UpdatePod %q", pod.Name)
-
-	// TODO: backend.UpdateContainer
-	return errors.Errorf("UpdatePod not implemented")
+	// TODO: Can we do this more performant?
+	if err := p.DeletePod(ctx, pod); err != nil {
+		return err
+	}
+	return p.CreatePod(ctx, pod)
 }
 
 // DeletePod takes a Kubernetes Pod and deletes it from the provider. Once a pod is deleted, the provider is
@@ -318,8 +319,23 @@ func (p *Provider) DeletePod(ctx context.Context, pod *corev1.Pod) error {
 
 	log.G(ctx).Debugf("receive DeletePod %q", pod.Name)
 
-	// TODO: return p.runtime.DeletePod(pod)
-	return errors.Errorf("DeletePod not implemented")
+	// Delete instances
+	for i, c := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+		isInit := i < len(pod.Spec.InitContainers)
+		log.G(ctx).Debugf("processing container %d (init=%t)", i, isInit)
+
+		// Delete instance
+		instanceID := podAndContainerToIdentifier(pod, c)
+		instance, found := p.instances[instanceID]
+		if found {
+			log.G(ctx).Debugf("deleting instance %q", instanceID)
+			instance.Delete()
+		}
+	}
+
+	// TODO: Delete volumes? Actually we need to check volume claims etc.
+
+	return nil
 }
 
 func (p *Provider) getInstance(namespace string, podName string, containerName string) (Instance, bool) {

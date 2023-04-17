@@ -5,7 +5,7 @@ go 1.19
 require (
 	contrib.go.opencensus.io/exporter/jaeger v0.2.1
 	contrib.go.opencensus.io/exporter/ocagent v0.7.0
-	github.com/cloudius-systems/capstan v0.5.0
+	github.com/cloudius-systems/capstan v0.5.1-0.20230123050333-de91c4edf585
 	github.com/containerd/containerd v1.5.14
 	github.com/go-delve/delve v1.9.1
 	github.com/google/uuid v1.2.0
