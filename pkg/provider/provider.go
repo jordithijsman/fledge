@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"gitlab.ilabt.imec.be/fledge/service/pkg/manager"
 	"time"
 )
 
@@ -24,6 +25,7 @@ const (
 type Provider struct {
 	nodeName           string
 	operatingSystem    string
+	resourceManager    *manager.ResourceManager
 	internalIP         string
 	daemonEndpointPort int32
 	config             Config
@@ -35,7 +37,7 @@ type Provider struct {
 }
 
 // NewProviderConfig creates a new Provider.
-func NewProviderConfig(config Config, nodeName, operatingSystem string, internalIP string, daemonEndpointPort int32) (*Provider, error) {
+func NewProviderConfig(config Config, nodeName, operatingSystem string, resourceManager *manager.ResourceManager, internalIP string, daemonEndpointPort int32) (*Provider, error) {
 	// set defaults
 	if config.Default == "" {
 		config.Default = defaultConfig.Default
@@ -53,7 +55,7 @@ func NewProviderConfig(config Config, nodeName, operatingSystem string, internal
 				return nil, err
 			}
 		case BackendOsv:
-			if backends[e], err = NewOSvBackend(config); err != nil {
+			if backends[e], err = NewOSvBackend(config, resourceManager); err != nil {
 				return nil, err
 			}
 		default:
@@ -65,6 +67,7 @@ func NewProviderConfig(config Config, nodeName, operatingSystem string, internal
 	provider := Provider{
 		nodeName:           nodeName,
 		operatingSystem:    operatingSystem,
+		resourceManager:    resourceManager,
 		internalIP:         internalIP,
 		daemonEndpointPort: daemonEndpointPort,
 		pods:               map[string]*corev1.Pod{},
@@ -78,13 +81,13 @@ func NewProviderConfig(config Config, nodeName, operatingSystem string, internal
 }
 
 // NewProvider creates a new Provider, which implements the PodNotifier interface
-func NewProvider(providerConfig, nodeName, operatingSystem string, internalIP string, daemonEndpointPort int32) (*Provider, error) {
+func NewProvider(providerConfig, nodeName, operatingSystem string, resourceManager *manager.ResourceManager, internalIP string, daemonEndpointPort int32) (*Provider, error) {
 	cfg, err := loadConfig(providerConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewProviderConfig(cfg, nodeName, operatingSystem, internalIP, daemonEndpointPort)
+	return NewProviderConfig(cfg, nodeName, operatingSystem, resourceManager, internalIP, daemonEndpointPort)
 }
 
 // loadConfig loads the given json configuration files.

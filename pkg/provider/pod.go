@@ -38,7 +38,7 @@ func (p *Provider) GetPods(ctx context.Context) ([]*corev1.Pod, error) {
 	ctx, span := trace.StartSpan(ctx, "GetPods")
 	defer span.End()
 
-	log.G(ctx).Info("receive GetPods")
+	log.G(ctx).Debug("receive GetPods")
 
 	var pods []*corev1.Pod
 	for _, pod := range p.pods {
@@ -61,11 +61,11 @@ func (p *Provider) CreatePod(ctx context.Context, pod *corev1.Pod) error {
 	podID := podToIdentifier(pod)
 	p.pods[podID] = pod
 
-	//// TODO: Parse volumes but create them on-demand in the provider
-	//var volumesToCreate map[string]corev1.Volume
-	//for _, v := range pod.Spec.Volumes {
-	//	volumesToCreate[v.Name] = v
-	//}
+	// Parse volumes but create them on-demand in the provider
+	volumesToCreate := make(map[string]corev1.Volume)
+	for _, v := range pod.Spec.Volumes {
+		volumesToCreate[v.Name] = v
+	}
 
 	// Get Uid and Gid
 	//uid, gid, err := uidGidFromSecurityContext(pod, p.config.OverrideRootUID)
@@ -108,25 +108,25 @@ func (p *Provider) CreatePod(ctx context.Context, pod *corev1.Pod) error {
 		if be == nil {
 			return errors.Wrapf(err, "failed to find enabled backend %q", im.Backend)
 		}
-		//// TODO: Create volumes on-demand in backend (this is only for Volume.Projected)
-		//for _, vm := range c.VolumeMounts {
-		//	volume, ok := volumesToCreate[vm.Name]
-		//	if !ok {
-		//		return errors.Errorf("failed to find volume %q in spec", vm.Name)
-		//	}
-		//	volumeID := podAndVolumeToIdentifier(pod, volume)
-		//	v, ok := p.volumes[volumeID]
-		//	if !ok {
-		//		v = Volume{ID: volumeID, Backend: be}
-		//		if err = v.Create(volume); err != nil {
-		//			return errors.Wrapf(err, "failed to create volume %q", volumeID)
-		//		}
-		//		p.volumes[volumeID] = v
-		//	}
-		//	if v.Backend != be {
-		//		return errors.Errorf("volume %q is used across backends, this is not supported", volumeID)
-		//	}
-		//}
+		// Create volumes on-demand in backend
+		for _, vm := range c.VolumeMounts {
+			volume, ok := volumesToCreate[vm.Name]
+			if !ok {
+				return errors.Errorf("failed to find volume %q in spec", vm.Name)
+			}
+			volumeID := podAndVolumeToIdentifier(pod, volume)
+			v, ok := p.volumes[volumeID]
+			if !ok {
+				v = Volume{ID: volumeID, Backend: be}
+				if err = v.Create(volume); err != nil {
+					return errors.Wrapf(err, "failed to create volume %q", volumeID)
+				}
+				p.volumes[volumeID] = v
+			}
+			if v.Backend != be {
+				return errors.Errorf("volume %q is used across backends, this is not supported", volumeID)
+			}
+		}
 		// Create instance
 		log.G(ctx).Infof("creating instance %q (backend=%s)", instanceID, im.Backend)
 		err = be.CreateInstance(instanceID, c)
@@ -301,12 +301,68 @@ func (p *Provider) GetPodStatus(ctx context.Context, namespace, name string) (*c
 
 	log.G(ctx).Debugf("receive GetPodStatus %q", name)
 
-	// Return status field of pod (TODO: Update the actual status constantly)
+	//// Return status field of pod (TODO: Update the actual status constantly)
+	//pod, err := p.GetPod(ctx, namespace, name)
+	//if err != nil {
+	//	return nil, err
+	//}
+	//return &pod.Status, nil
+
+	// TODO: This is something ad-hoc
 	pod, err := p.GetPod(ctx, namespace, name)
 	if err != nil {
 		return nil, err
 	}
-	return &pod.Status, nil
+
+	initInstanceStatuses := make([]corev1.ContainerStatus, 0)
+	for _, c := range pod.Spec.InitContainers {
+		instance, ok := p.getInstance(pod.Namespace, pod.Name, c.Name)
+		if !ok {
+			return &corev1.PodStatus{Phase: corev1.PodPending}, nil
+		}
+		instanceStatus, err := instance.Status()
+		if err != nil {
+			return nil, errors.Wrap(err, "osv")
+		}
+		initInstanceStatuses = append(initInstanceStatuses, instanceStatus)
+	}
+
+	started := true
+	running := true
+	instanceStatuses := make([]corev1.ContainerStatus, 0)
+	for _, c := range pod.Spec.Containers {
+		instance, ok := p.getInstance(pod.Namespace, pod.Name, c.Name)
+		if !ok {
+			return &corev1.PodStatus{Phase: corev1.PodPending}, nil
+		}
+		instanceStatus, err := instance.Status()
+		if err != nil {
+			return nil, errors.Wrap(err, "osv")
+		}
+		if instanceStatus.State.Running == nil {
+			if instanceStatus.State.Terminated == nil {
+				started = false
+			} else {
+				running = false
+			}
+		}
+		instanceStatuses = append(instanceStatuses, instanceStatus)
+	}
+
+	status := &corev1.PodStatus{
+		Phase:                 corev1.PodPending,
+		InitContainerStatuses: initInstanceStatuses,
+		ContainerStatuses:     instanceStatuses,
+	}
+
+	// Simple way of determining the phase
+	if running {
+		status.Phase = corev1.PodRunning
+	} else if started {
+		status.Phase = corev1.PodFailed
+	}
+
+	return status, nil
 }
 
 // UpdatePod takes a Kubernetes Pod and updates it within the provider.

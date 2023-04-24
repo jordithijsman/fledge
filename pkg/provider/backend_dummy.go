@@ -64,6 +64,10 @@ func (b *DummyBackend) CreateVolume(volumeID string, volume corev1.Volume) error
 	return nil
 }
 
+func (b *DummyBackend) UpdateVolume(volumeID string, volume corev1.Volume) error {
+	return nil
+}
+
 func (b *DummyBackend) DeleteVolume(volumeID string) error {
 	return nil
 }

@@ -15,6 +15,10 @@ spec:
     matchLabels:
       run: papermc
   replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
   template:
     metadata:
       labels:
@@ -28,9 +32,13 @@ spec:
         - containerPort: 25565
         workingDir: /data
         volumeMounts:
-        - mountPath: /data
+        - name: data
+          mountPath: /data
       volumes:
       - name: data
+        hostPath:
+          path: /srv/papermc/data
+          type: DirectoryOrCreate
       nodeSelector:
         type: virtual-kubelet
       tolerations:

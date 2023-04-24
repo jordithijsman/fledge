@@ -37,5 +37,6 @@ type Backend interface {
 	GetInstanceLogs(instanceID string, opts api.ContainerLogOpts) (io.ReadCloser, error)
 	RunInInstance(instanceID string, cmd []string, attach api.AttachIO) error
 	CreateVolume(volumeID string, volume corev1.Volume) error
+	UpdateVolume(volumeID string, volume corev1.Volume) error
 	DeleteVolume(volumeID string) error
 }

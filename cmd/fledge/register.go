@@ -26,6 +26,7 @@ func registerBackend(s *provider.Store) {
 			cfg.ConfigPath,
 			cfg.NodeName,
 			cfg.OperatingSystem,
+			cfg.ResourceManager,
 			cfg.InternalIP,
 			cfg.DaemonPort,
 		)

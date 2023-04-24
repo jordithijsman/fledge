@@ -203,8 +203,11 @@ func (b *ContainerdBackend) StartInstance(instanceID string) error {
 }
 
 func (b *ContainerdBackend) UpdateInstance(instanceID string, instance corev1.Container) error {
-	// TODO
-	return nil
+	// TODO: Can we do this more performant?
+	if err := b.DeleteInstance(instanceID); err != nil {
+		return err
+	}
+	return b.CreateInstance(instanceID, instance)
 }
 
 func (b *ContainerdBackend) KillInstance(instanceID string, signal syscall.Signal) error {
@@ -310,6 +313,14 @@ func (b *ContainerdBackend) RunInInstance(instanceID string, cmd []string, attac
 
 func (b *ContainerdBackend) CreateVolume(volumeID string, volume corev1.Volume) error {
 	return nil
+}
+
+func (b *ContainerdBackend) UpdateVolume(volumeID string, volume corev1.Volume) error {
+	// TODO: Can we do this more performant?
+	if err := b.DeleteVolume(volumeID); err != nil {
+		return err
+	}
+	return b.CreateVolume(volumeID, volume)
 }
 
 func (b *ContainerdBackend) DeleteVolume(volumeID string) error {

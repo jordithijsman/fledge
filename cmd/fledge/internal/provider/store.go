@@ -1,10 +1,10 @@
 package provider
 
 import (
+	"gitlab.ilabt.imec.be/fledge/service/pkg/manager"
 	"sync"
 
 	"github.com/virtual-kubelet/virtual-kubelet/errdefs"
-	"gitlab.ilabt.imec.be/fledge/service/internal/manager"
 )
 
 // Store is used for registering/fetching providers

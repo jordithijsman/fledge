@@ -17,7 +17,7 @@ func (p *Provider) GetContainerLogs(ctx context.Context, namespace, podName, con
 	// Add pod and container attributes to the current span.
 	ctx = addAttributes(ctx, span, namespaceKey, namespace, nameKey, podName, containerNameKey, containerName)
 
-	log.G(ctx).Info("receive GetContainerLogs %q", podName)
+	log.G(ctx).Debugf("receive GetContainerLogs %q", podName)
 
 	// Get logs from instance
 	instance, found := p.getInstance(namespace, podName, containerName)
@@ -36,7 +36,7 @@ func (p *Provider) RunInContainer(ctx context.Context, namespace, podName, conta
 	// Add pod and container attributes to the current span.
 	ctx = addAttributes(ctx, span, namespaceKey, namespace, nameKey, podName, containerNameKey, containerName)
 
-	log.G(ctx).Info("receive RunInContainer %q", podName)
+	log.G(ctx).Debugf("receive RunInContainer %q", podName)
 
 	// Run command inside instance
 	instance, found := p.getInstance(namespace, podName, containerName)

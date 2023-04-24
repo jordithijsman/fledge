@@ -18,7 +18,7 @@ import (
 	"context"
 	"crypto/tls"
 	"gitlab.ilabt.imec.be/fledge/service/cmd/fledge/internal/provider"
-	"gitlab.ilabt.imec.be/fledge/service/internal/manager"
+	"gitlab.ilabt.imec.be/fledge/service/pkg/manager"
 	"net/http"
 	"os"
 	"runtime"

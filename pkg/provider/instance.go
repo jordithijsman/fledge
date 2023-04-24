@@ -7,6 +7,8 @@ import (
 	"syscall"
 )
 
+// An Instance represents a Container with extensions for a Backend
+// It's desirable that the backend only knows as much as it needs to set up a Container
 type Instance struct {
 	ID      string
 	Backend Backend
