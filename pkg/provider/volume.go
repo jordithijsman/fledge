@@ -1,20 +1,5 @@
 package provider
 
-import corev1 "k8s.io/api/core/v1"
-
-type Volume struct {
-	ID      string
-	Backend Backend
-}
-
-func (v *Volume) Create(volume corev1.Volume) error {
-	return v.Backend.CreateVolume(v.ID, volume)
-}
-
-func (v *Volume) Delete() error {
-	return v.Backend.DeleteVolume(v.ID)
-}
-
 //// Volume describes what volumes should be created.
 //type Volume int
 //

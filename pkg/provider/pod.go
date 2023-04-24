@@ -3,10 +3,8 @@ package provider
 import (
 	"context"
 	"github.com/containerd/containerd/log"
-	"github.com/containerd/containerd/reference/docker"
 	"github.com/pkg/errors"
 	"github.com/virtual-kubelet/virtual-kubelet/trace"
-	"gitlab.ilabt.imec.be/fledge/service/pkg/storage"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -76,66 +74,24 @@ func (p *Provider) CreatePod(ctx context.Context, pod *corev1.Pod) error {
 	//tmpfs := strings.Join([]string{"/var", "/run"}, " ")
 	//
 	//previousUnit := ""
-	var instancesToStart []Instance
+	var instancesToStart []*Instance
 	for i, c := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
 		isInit := i < len(pod.Spec.InitContainers)
 		log.G(ctx).Debugf("processing container %d (init=%t)", i, isInit)
 
-		// Check for name collision just in case
-		instanceID := podAndContainerToIdentifier(pod, c)
-		if _, ok := p.instances[instanceID]; ok {
-			return errors.Errorf("name collision for instance %q", instanceID)
+		// New Instance
+		instance, err := p.newInstance(ctx, pod, &c)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create instance %q for pod %q", c.Name, podToIdentifier(pod))
 		}
 
-		// Convert image name to something universal
-		imageRef, err := docker.ParseDockerRef(c.Image)
-		if err != nil {
-			return errors.Errorf("failed parsing reference %q", c.Image)
+		// Create Instance
+		log.G(ctx).Infof("creating instance %q", instance.ID)
+		if err = instance.Create(); err != nil {
+			return errors.Wrapf(err, "failed to create instance %q", instance.ID)
 		}
-		c.Image = imageRef.String()
-
-		// Get the config of the image to determine the backend
-		im, err := storage.ImageGetConfig(ctx, c.Image)
-		if err != nil {
-			return errors.Wrapf(err, "unable to get image config of %q", c.Image)
-		}
-		// If no backend is defined, it's a non-FLEDGE and should be run with containerd
-		if im.Backend == "" {
-			im.Backend = BackendContainerd
-		}
-		// Check if the required backend is enabled
-		be := p.backends[im.Backend]
-		if be == nil {
-			return errors.Wrapf(err, "failed to find enabled backend %q", im.Backend)
-		}
-		// Create volumes on-demand in backend
-		for _, vm := range c.VolumeMounts {
-			volume, ok := volumesToCreate[vm.Name]
-			if !ok {
-				return errors.Errorf("failed to find volume %q in spec", vm.Name)
-			}
-			volumeID := podAndVolumeToIdentifier(pod, volume)
-			v, ok := p.volumes[volumeID]
-			if !ok {
-				v = Volume{ID: volumeID, Backend: be}
-				if err = v.Create(volume); err != nil {
-					return errors.Wrapf(err, "failed to create volume %q", volumeID)
-				}
-				p.volumes[volumeID] = v
-			}
-			if v.Backend != be {
-				return errors.Errorf("volume %q is used across backends, this is not supported", volumeID)
-			}
-		}
-		// Create instance
-		log.G(ctx).Infof("creating instance %q (backend=%s)", instanceID, im.Backend)
-		err = be.CreateInstance(instanceID, c)
-		if err != nil {
-			return errors.Wrapf(err, "failed to create instance %q", instanceID)
-		}
-		instance := Instance{ID: instanceID, Backend: be}
 		instancesToStart = append(instancesToStart, instance)
-		p.instances[instanceID] = instance
+		p.instances[instance.ID] = instance
 
 		//bindmounts := []string{}
 		//bindmountsro := []string{}
@@ -398,7 +354,7 @@ func (p *Provider) DeletePod(ctx context.Context, pod *corev1.Pod) error {
 		log.G(ctx).Debugf("processing container %d (init=%t)", i, isInit)
 
 		// Delete instance
-		instanceID := podAndContainerToIdentifier(pod, c)
+		instanceID := podAndContainerToIdentifier(pod, &c)
 		instance, found := p.instances[instanceID]
 		if found {
 			log.G(ctx).Debugf("deleting instance %q", instanceID)
@@ -406,28 +362,11 @@ func (p *Provider) DeletePod(ctx context.Context, pod *corev1.Pod) error {
 		}
 	}
 
-	// Delete volumes
-	for _, v := range pod.Spec.Volumes {
-		// Delete volume
-		volumeID := podAndVolumeToIdentifier(pod, v)
-		volume, found := p.instances[volumeID]
-		if found {
-			log.G(ctx).Debugf("deleting volume %q", volumeID)
-			volume.Delete()
-		}
-	}
-
 	return nil
 }
 
-func (p *Provider) getInstance(namespace string, podName string, containerName string) (Instance, bool) {
+func (p *Provider) getInstance(namespace string, podName string, containerName string) (*Instance, bool) {
 	instanceID := joinIdentifierFromParts(namespace, podName, containerName)
 	instance, ok := p.instances[instanceID]
-	return instance, ok
-}
-
-func (p *Provider) getVolume(namespace string, podName string, volumeName string) (Volume, bool) {
-	instanceID := joinIdentifierFromParts(namespace, podName, volumeName)
-	instance, ok := p.volumes[instanceID]
 	return instance, ok
 }

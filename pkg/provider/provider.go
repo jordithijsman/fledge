@@ -32,8 +32,7 @@ type Provider struct {
 	startTime          time.Time
 	backends           map[string]Backend
 	pods               map[string]*corev1.Pod
-	instances          map[string]Instance
-	volumes            map[string]Volume
+	instances          map[string]*Instance
 }
 
 // NewProviderConfig creates a new Provider.
@@ -74,8 +73,7 @@ func NewProviderConfig(config Config, nodeName, operatingSystem string, resource
 		config:             config,
 		startTime:          time.Now(),
 		backends:           backends,
-		instances:          map[string]Instance{},
-		volumes:            map[string]Volume{},
+		instances:          map[string]*Instance{},
 	}
 	return &provider, nil
 }

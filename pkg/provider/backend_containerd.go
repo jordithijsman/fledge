@@ -46,9 +46,9 @@ func NewContainerdBackend(cfg Config) (*ContainerdBackend, error) {
 	return b, nil
 }
 
-func (b *ContainerdBackend) GetInstanceStatus(instanceID string) (corev1.ContainerStatus, error) {
+func (b *ContainerdBackend) GetInstanceStatus(instance *Instance) (corev1.ContainerStatus, error) {
 	// Load existing container
-	container, err := b.client.LoadContainer(b.context, instanceID)
+	container, err := b.client.LoadContainer(b.context, instance.ID)
 	if err != nil {
 		err = errors.Wrap(err, "containerd")
 		return corev1.ContainerStatus{}, err
@@ -103,7 +103,7 @@ func (b *ContainerdBackend) GetInstanceStatus(instanceID string) (corev1.Contain
 	}, nil
 }
 
-func (b *ContainerdBackend) CreateInstance(instanceID string, instance corev1.Container) error {
+func (b *ContainerdBackend) CreateInstance(instance *Instance) error {
 	// Container.Image
 	image, err := b.client.GetImage(b.context, instance.Image)
 	if (err != nil && instance.ImagePullPolicy == corev1.PullIfNotPresent) || instance.ImagePullPolicy == corev1.PullAlways {
@@ -154,9 +154,9 @@ func (b *ContainerdBackend) CreateInstance(instanceID string, instance corev1.Co
 	// Create container
 	container, err := b.client.NewContainer(
 		b.context,
-		instanceID,
+		instance.ID,
 		containerd.WithImage(image),
-		containerd.WithNewSnapshot(fmt.Sprintf("%s_snapshot", instanceID), image),
+		containerd.WithNewSnapshot(fmt.Sprintf("%s_snapshot", instance.ID), image),
 		containerd.WithNewSpec(specOpts...),
 	)
 	if err != nil {
@@ -181,9 +181,9 @@ func (b *ContainerdBackend) CreateInstance(instanceID string, instance corev1.Co
 	return nil
 }
 
-func (b *ContainerdBackend) StartInstance(instanceID string) error {
+func (b *ContainerdBackend) StartInstance(instance *Instance) error {
 	// Load existing container
-	container, err := b.client.LoadContainer(b.context, instanceID)
+	container, err := b.client.LoadContainer(b.context, instance.ID)
 	if err != nil {
 		return errors.Wrap(err, "containerd")
 	}
@@ -202,17 +202,17 @@ func (b *ContainerdBackend) StartInstance(instanceID string) error {
 	return nil
 }
 
-func (b *ContainerdBackend) UpdateInstance(instanceID string, instance corev1.Container) error {
+func (b *ContainerdBackend) UpdateInstance(instance *Instance) error {
 	// TODO: Can we do this more performant?
-	if err := b.DeleteInstance(instanceID); err != nil {
+	if err := b.DeleteInstance(instance); err != nil {
 		return err
 	}
-	return b.CreateInstance(instanceID, instance)
+	return b.CreateInstance(instance)
 }
 
-func (b *ContainerdBackend) KillInstance(instanceID string, signal syscall.Signal) error {
+func (b *ContainerdBackend) KillInstance(instance *Instance, signal syscall.Signal) error {
 	// Load existing container
-	container, err := b.client.LoadContainer(b.context, instanceID)
+	container, err := b.client.LoadContainer(b.context, instance.ID)
 	if err != nil {
 		return errors.Wrap(err, "containerd")
 	}
@@ -232,9 +232,9 @@ func (b *ContainerdBackend) KillInstance(instanceID string, signal syscall.Signa
 	return nil
 }
 
-func (b *ContainerdBackend) DeleteInstance(instanceID string) error {
+func (b *ContainerdBackend) DeleteInstance(instance *Instance) error {
 	// Load existing container
-	container, err := b.client.LoadContainer(b.context, instanceID)
+	container, err := b.client.LoadContainer(b.context, instance.ID)
 	if err != nil {
 		return errors.Wrap(err, "containerd")
 	}
@@ -247,14 +247,14 @@ func (b *ContainerdBackend) DeleteInstance(instanceID string) error {
 	return nil
 }
 
-func (b *ContainerdBackend) GetInstanceLogs(instanceID string, opts api.ContainerLogOpts) (io.ReadCloser, error) {
+func (b *ContainerdBackend) GetInstanceLogs(instance *Instance, opts api.ContainerLogOpts) (io.ReadCloser, error) {
 	// TODO: Backing file
 	return io.NopCloser(strings.NewReader("")), nil
 }
 
-func (b *ContainerdBackend) RunInInstance(instanceID string, cmd []string, attach api.AttachIO) error {
+func (b *ContainerdBackend) RunInInstance(instance *Instance, cmd []string, attach api.AttachIO) error {
 	// Load existing container
-	container, err := b.client.LoadContainer(b.context, instanceID)
+	container, err := b.client.LoadContainer(b.context, instance.ID)
 	if err != nil {
 		return errors.Wrap(err, "containerd")
 	}
@@ -308,22 +308,6 @@ func (b *ContainerdBackend) RunInInstance(instanceID string, cmd []string, attac
 		return errors.Wrap(err, "containerd")
 	}
 
-	return nil
-}
-
-func (b *ContainerdBackend) CreateVolume(volumeID string, volume corev1.Volume) error {
-	return nil
-}
-
-func (b *ContainerdBackend) UpdateVolume(volumeID string, volume corev1.Volume) error {
-	// TODO: Can we do this more performant?
-	if err := b.DeleteVolume(volumeID); err != nil {
-		return err
-	}
-	return b.CreateVolume(volumeID, volume)
-}
-
-func (b *ContainerdBackend) DeleteVolume(volumeID string) error {
 	return nil
 }
 

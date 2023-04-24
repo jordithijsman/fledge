@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/cloudius-systems/capstan/core"
@@ -25,49 +24,12 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"text/template"
 	"time"
 
 	capstan "github.com/cloudius-systems/capstan/util"
 	"github.com/virtual-kubelet/virtual-kubelet/node/api"
 	corev1 "k8s.io/api/core/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 )
-
-type OSvExtras struct {
-	// vmProc specify extra processes (e.g. daemons) that needs to be started before the vm
-	vmProc [][]string
-	// vmArgs specify extra arguments (e.g. mounts) that need to be passed to the hypervisor
-	vmArgs []string
-	// vmOpts specify extra options (e.g. mounts) that need to be passed to the virtual machine
-	// the options can be templated by using Go template syntax for a VolumeMount
-	vmOpts []string
-}
-
-func (e *OSvExtras) extendWith(other *OSvExtras) {
-	e.vmProc = append(e.vmProc, other.vmProc...)
-	e.vmArgs = append(e.vmArgs, other.vmArgs...)
-	e.vmOpts = append(e.vmOpts, other.vmOpts...)
-}
-
-func (e *OSvExtras) executeTemplate(index int, mount *corev1.VolumeMount) error {
-	for i, vmOpt := range e.vmOpts {
-		tmpl, err := template.New("VolumeMount").Parse(vmOpt)
-		if err != nil {
-			return err
-		}
-		var b bytes.Buffer
-		d := struct {
-			Index int
-			Mount *corev1.VolumeMount
-		}{Index: index, Mount: mount}
-		if err = tmpl.Execute(&b, d); err != nil {
-			return err
-		}
-		e.vmOpts[i] = b.String()
-	}
-	return nil
-}
 
 type OSvBackend struct {
 	config          Config
@@ -97,18 +59,18 @@ func NewOSvBackend(cfg Config, resourceManager *manager.ResourceManager) (*OSvBa
 	return b, nil
 }
 
-func (b *OSvBackend) GetInstanceStatus(instanceID string) (corev1.ContainerStatus, error) {
-	if instanceStatus, ok := b.instanceStatuses[instanceID]; ok {
+func (b *OSvBackend) GetInstanceStatus(instance *Instance) (corev1.ContainerStatus, error) {
+	if instanceStatus, ok := b.instanceStatuses[instance.ID]; ok {
 		return *instanceStatus, nil
 	}
-	err := errors.Errorf("instance %q does not exist", instanceID)
+	err := errors.Errorf("instance %q does not exist", instance.ID)
 	return corev1.ContainerStatus{}, errors.Wrap(err, "osv")
 }
 
-func (b *OSvBackend) CreateInstance(instanceID string, instance corev1.Container) error {
+func (b *OSvBackend) CreateInstance(instance *Instance) error {
 	// Clean up pre-existing instance (TODO can we do this in SIGKILL or on startup?)
 	// Otherwise capstan will start a pre-existing instance that was stopped
-	b.DeleteInstance(instanceID)
+	b.DeleteInstance(instance)
 
 	// Get image config
 	imageConf, err := storage.ImageGetConfig(b.context, instance.Image)
@@ -165,21 +127,17 @@ func (b *OSvBackend) CreateInstance(instanceID string, instance corev1.Container
 	// Container.VolumeMounts
 	instanceExtras := &OSvExtras{}
 	for i, vm := range instance.VolumeMounts {
-		parts := splitIdentifierIntoParts(instanceID)
+		parts := splitIdentifierIntoParts(instance.ID)
 		parts[len(parts)-1] = vm.Name
-		volumeID := joinIdentifierFromParts(parts...)
-		volumeExtras, ok := b.volumeExtras[volumeID]
-		if !ok {
-			err = errors.Errorf("volume %q was not created", volumeID)
+		vmID := joinIdentifierFromParts(parts...)
+		volumeMountExtras, err := b.getVolumeMountExtras(vmID, i, vm)
+		if err != nil {
 			return errors.Wrap(err, "osv")
 		}
-		if err = volumeExtras.executeTemplate(i, &vm); err != nil {
-			return errors.Wrap(err, "osv")
-		}
-		instanceExtras.extendWith(volumeExtras)
+		instanceExtras.extendWith(volumeMountExtras)
 	}
 	cmd = append(instanceExtras.vmOpts, cmd...)
-	b.instanceExtras[instanceID] = instanceExtras
+	b.instanceExtras[instance.ID] = instanceExtras
 	// Container.VolumeDevices (TODO)
 	// Container.LivenessProbe (TODO)
 	// Container.ReadinessProbe (TODO)
@@ -197,16 +155,16 @@ func (b *OSvBackend) CreateInstance(instanceID string, instance corev1.Container
 	// Create hypervisor config
 	switch imageConf.Hypervisor {
 	case "qemu":
-		dir := b.instanceDir(instanceID)
+		dir := b.instanceDir(instance)
 		conf := &qemu.VMConfig{
-			Name:        instanceID,
+			Name:        instance.ID,
 			Verbose:     true,
 			Cmd:         strings.Join(cmd, " "),
 			DisableKvm:  false,
 			Persist:     false,
 			InstanceDir: dir,
-			Monitor:     b.instanceMoniPath(instanceID),
-			ConfigFile:  b.instanceConfPath(instanceID),
+			Monitor:     b.instanceMoniPath(instance),
+			ConfigFile:  b.instanceConfPath(instance),
 			AioType:     b.repo.QemuAioType,
 			Image:       image,
 			BackingFile: true,
@@ -217,7 +175,7 @@ func (b *OSvBackend) CreateInstance(instanceID string, instance corev1.Container
 			Bridge:      "virbr0", // TODO
 			NatRules:    natRules,
 			MAC:         "", // TODO
-			VNCFile:     b.instanceSockPath(instanceID),
+			VNCFile:     b.instanceSockPath(instance),
 		}
 		if err = os.MkdirAll(dir, 0755); err != nil {
 			return errors.Wrap(err, "osv")
@@ -231,7 +189,7 @@ func (b *OSvBackend) CreateInstance(instanceID string, instance corev1.Container
 	}
 
 	// ContainerStatus.Name
-	parts := splitIdentifierIntoParts(instanceID)
+	parts := splitIdentifierIntoParts(instance.ID)
 	name := parts[len(parts)-1]
 	// ContainerStatus.State
 	state := corev1.ContainerState{
@@ -242,14 +200,14 @@ func (b *OSvBackend) CreateInstance(instanceID string, instance corev1.Container
 	}
 	// ContainerStatus.LastTerminationState
 	lastTerminationState := corev1.ContainerState{}
-	if instanceStatus, ok := b.instanceStatuses[instanceID]; ok {
+	if instanceStatus, ok := b.instanceStatuses[instance.ID]; ok {
 		lastTerminationState = instanceStatus.State
 	}
 	// ContainerStatus.Started
 	started := false
 	// Instance is created, populate its status
 	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#containerstatus-v1-core
-	b.instanceStatuses[instanceID] = &corev1.ContainerStatus{
+	b.instanceStatuses[instance.ID] = &corev1.ContainerStatus{
 		Name:                 name,
 		State:                state,
 		LastTerminationState: lastTerminationState,
@@ -257,24 +215,24 @@ func (b *OSvBackend) CreateInstance(instanceID string, instance corev1.Container
 		RestartCount:         0,    // Default value
 		Image:                instance.Image,
 		ImageID:              "",
-		ContainerID:          fmt.Sprintf("capstan://%s", instanceID),
+		ContainerID:          fmt.Sprintf("capstan://%s", instance.ID),
 		Started:              &started,
 	}
 
 	return nil
 }
 
-func (b *OSvBackend) StartInstance(instanceID string) error {
-	instanceName, instancePlatform := capstan.SearchInstance(instanceID)
+func (b *OSvBackend) StartInstance(instance *Instance) error {
+	instanceName, instancePlatform := capstan.SearchInstance(instance.ID)
 	if instanceName == "" {
-		err := errors.Errorf("instance %q does not exist", instanceID)
+		err := errors.Errorf("instance %q does not exist", instance.ID)
 		return errors.Wrap(err, "osv")
 	}
 
 	// Get extras for instance
-	extras, ok := b.instanceExtras[instanceID]
+	extras, ok := b.instanceExtras[instance.ID]
 	if !ok {
-		err := errors.Errorf("instance %q does not have extras", instanceID)
+		err := errors.Errorf("instance %q does not have extras", instance.ID)
 		return errors.Wrap(err, "osv")
 	}
 
@@ -316,8 +274,8 @@ func (b *OSvBackend) StartInstance(instanceID string) error {
 		procs = append(procs, proc)
 	}
 	// Create logfile
-	log.G(b.context).Infof("Started instance %q (backend=osv)", instanceID)
-	logsFile, pErr := os.Create(b.instanceLogsPath(instanceID))
+	log.G(b.context).Infof("Started instance %q (backend=osv)", instance.ID)
+	logsFile, pErr := os.Create(b.instanceLogsPath(instance))
 	if pErr != nil {
 		return errors.Wrap(pErr, "osv")
 	}
@@ -330,7 +288,7 @@ func (b *OSvBackend) StartInstance(instanceID string) error {
 
 	// Instance is started, update its status
 	// https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.23/#containerstaterunning-v1-core
-	instanceStatus := b.instanceStatuses[instanceID]
+	instanceStatus := b.instanceStatuses[instance.ID]
 	instanceStatus.State = corev1.ContainerState{
 		Running: &corev1.ContainerStateRunning{
 			StartedAt: metav1.NewTime(time.Now()),
@@ -355,7 +313,7 @@ func (b *OSvBackend) StartInstance(instanceID string) error {
 				Message:     exitMsg,
 				StartedAt:   instanceStatus.State.Running.StartedAt,
 				FinishedAt:  metav1.NewTime(time.Now()),
-				ContainerID: instanceID,
+				ContainerID: instance.ID,
 			},
 		}
 	}()
@@ -363,18 +321,18 @@ func (b *OSvBackend) StartInstance(instanceID string) error {
 	return nil
 }
 
-func (b *OSvBackend) UpdateInstance(instanceID string, instance corev1.Container) error {
+func (b *OSvBackend) UpdateInstance(instance *Instance) error {
 	// TODO: Can we do this more performant?
-	if err := b.DeleteInstance(instanceID); err != nil {
+	if err := b.DeleteInstance(instance); err != nil {
 		return err
 	}
-	return b.CreateInstance(instanceID, instance)
+	return b.CreateInstance(instance)
 }
 
-func (b *OSvBackend) KillInstance(instanceID string, signal syscall.Signal) error {
-	instanceName, instancePlatform := capstan.SearchInstance(instanceID)
+func (b *OSvBackend) KillInstance(instance *Instance, signal syscall.Signal) error {
+	instanceName, instancePlatform := capstan.SearchInstance(instance.ID)
 	if instanceName == "" {
-		err := errors.Errorf("instance %q does not exist", instanceID)
+		err := errors.Errorf("instance %q does not exist", instance.ID)
 		return errors.Wrap(err, "osv")
 	}
 
@@ -382,7 +340,7 @@ func (b *OSvBackend) KillInstance(instanceID string, signal syscall.Signal) erro
 	var err error
 	switch instancePlatform {
 	case "qemu":
-		err = qemu.StopVM(instanceID)
+		err = qemu.StopVM(instance.ID)
 	default:
 		err = errors.Errorf("platform %q is not supported", instancePlatform)
 		return errors.Wrap(err, "osv")
@@ -393,10 +351,10 @@ func (b *OSvBackend) KillInstance(instanceID string, signal syscall.Signal) erro
 	return nil
 }
 
-func (b *OSvBackend) DeleteInstance(instanceID string) error {
-	instanceName, instancePlatform := capstan.SearchInstance(instanceID)
+func (b *OSvBackend) DeleteInstance(instance *Instance) error {
+	instanceName, instancePlatform := capstan.SearchInstance(instance.ID)
 	if instanceName == "" {
-		err := errors.Errorf("instance %q does not exist", instanceID)
+		err := errors.Errorf("instance %q does not exist", instance.ID)
 		return errors.Wrap(err, "osv")
 	}
 
@@ -404,8 +362,8 @@ func (b *OSvBackend) DeleteInstance(instanceID string) error {
 	var err error
 	switch instancePlatform {
 	case "qemu":
-		qemu.StopVM(instanceID)
-		err = qemu.DeleteVM(instanceID)
+		qemu.StopVM(instance.ID)
+		err = qemu.DeleteVM(instance.ID)
 	default:
 		err = errors.Errorf("platform %q is not supported", instancePlatform)
 		return errors.Wrap(err, "osv")
@@ -415,60 +373,64 @@ func (b *OSvBackend) DeleteInstance(instanceID string) error {
 	}
 
 	// Instance is deleted, remove its status (TODO: last termination state)
-	delete(b.instanceStatuses, instanceID)
+	delete(b.instanceStatuses, instance.ID)
 
 	return nil
 }
 
-func (b *OSvBackend) GetInstanceLogs(instanceID string, opts api.ContainerLogOpts) (io.ReadCloser, error) {
+func (b *OSvBackend) GetInstanceLogs(instance *Instance, opts api.ContainerLogOpts) (io.ReadCloser, error) {
 	// TODO: Check opts
-	logsFile, err := os.Open(b.instanceLogsPath(instanceID))
+	logsFile, err := os.Open(b.instanceLogsPath(instance))
 	if err != nil {
 		return nil, errors.Wrap(err, "osv")
 	}
 	return logsFile, nil
 }
 
-func (b *OSvBackend) RunInInstance(instanceID string, cmd []string, attach api.AttachIO) error {
+func (b *OSvBackend) RunInInstance(instance *Instance, cmd []string, attach api.AttachIO) error {
 	return nil
 }
 
-func (b *OSvBackend) CreateVolume(volumeID string, volume corev1.Volume) error {
+type OSvExtras struct {
+	// vmProc specify extra processes (e.g. daemons) that needs to be started before the vm
+	vmProc [][]string
+	// vmArgs specify extra arguments (e.g. mounts) that need to be passed to the hypervisor
+	vmArgs []string
+	// vmOpts specify extra options (e.g. mounts) that need to be passed to the virtual machine
+	// the options can be templated by using Go template syntax for a VolumeMount
+	vmOpts []string
+}
+
+func (e *OSvExtras) extendWith(other *OSvExtras) {
+	e.vmProc = append(e.vmProc, other.vmProc...)
+	e.vmArgs = append(e.vmArgs, other.vmArgs...)
+	e.vmOpts = append(e.vmOpts, other.vmOpts...)
+}
+
+func (b *OSvBackend) getVolumeMountExtras(volumeMountID string, volumeMountIndex int, volumeMount InstanceVolumeMount) (*OSvExtras, error) {
+	volume := volumeMount.Volume
+
 	// Create volumes directory
 	volumesDir := b.volumesDir()
 	if _, err := os.Stat(volumesDir); os.IsNotExist(err) {
 		if err = os.MkdirAll(volumesDir, 0755); err != nil {
-			return errors.Wrap(err, "osv")
+			return nil, err
 		}
 	}
 
-	parts := splitIdentifierIntoParts(volumeID)
-	namespace := parts[0]
-
+	// Populate extras
+	extras := &OSvExtras{}
 	switch {
-	case volume.ConfigMap != nil:
-		// TODO: This is ugly, can we make this more generic? Maybe a custom kind of volume?
-		// If this is a custom kind of volume, are we maybe able to redefine volume mounts in corev1.Container
-		// by making an Instance struct that inherits from it?
-		configMap, err := b.resourceManager.GetConfigMap(volume.ConfigMap.Name, namespace)
-		if volume.ConfigMap.Optional != nil && !*volume.ConfigMap.Optional && k8serrors.IsNotFound(err) {
-			return fmt.Errorf("configMap %s is required by volume %q and does not exist", volume.ConfigMap.Name, volumeID)
-		}
-		if configMap == nil {
-			return nil
-		}
-
 	case volume.HostPath != nil:
 		switch *volume.HostPath.Type {
 		case corev1.HostPathDirectoryOrCreate:
 			if err := os.MkdirAll(volume.HostPath.Path, 0755); err != nil {
-				return errors.Wrap(err, "osv")
+				return nil, err
 			}
 			fallthrough
 		case corev1.HostPathDirectory:
 		default:
-			err := errors.Errorf("volume %q has unsupported hostPath.type %q", volumeID, volume.HostPath.Type)
-			return errors.Wrap(err, "osv")
+			return nil, errors.Errorf("volumeMount %q has unsupported hostPath.type %q", volumeMountID, volume.HostPath.Type)
 		}
 		/*
 			Create options for virtio-fs socket according to scripts/run.py
@@ -476,67 +438,71 @@ func (b *OSvBackend) CreateVolume(volumeID string, volume corev1.Volume) error {
 			https://github.com/cloudius-systems/osv/wiki/virtio-fs
 		*/
 		// Create temporary file for virtio-fs socket
-		socketPath := filepath.Join(volumesDir, fmt.Sprintf("%s.sock", volumeID))
+		socketPath := filepath.Join(volumesDir, fmt.Sprintf("%s.sock", volumeMountID))
 		// Determine arguments for virtio-fs
 		memSize := "1G" // TODO: configure
-		vmProc := []string{
+		extras.vmProc = [][]string{{
 			"virtiofsd",
 			"--socket-path", socketPath,
 			"--shared-dir", volume.HostPath.Path,
 			"--no-announce-submounts",
-		}
-		vmArgs := []string{
+		}}
+		extras.vmArgs = []string{
 			"-chardev", fmt.Sprintf("socket,id=char0,path=%s", socketPath),
 			"-device", fmt.Sprintf("vhost-user-fs-pci,queue-size=1024,chardev=char0,tag=%s", volume.Name),
 			"-object", fmt.Sprintf("memory-backend-file,id=mem,size=%s,mem-path=/dev/shm,share=on", memSize),
 			"-numa", "node,memdev=mem",
 		}
-		vmOpts := []string{
+		extras.vmOpts = []string{
 			"--rootfs=zfs",
-			"--mount-fs=virtiofs,/dev/virtiofs{{ .Index }},{{ .Mount.MountPath }}",
+			fmt.Sprintf("--mount-fs=virtiofs,/dev/virtiofs%s,%s", volumeMountIndex, volumeMount.MountPath),
 		}
-		b.volumeExtras[volumeID] = &OSvExtras{
-			vmProc: [][]string{vmProc},
-			vmArgs: vmArgs,
-			vmOpts: vmOpts,
-		}
+	// TODO: EmptyDir *corev1.EmptyDirVolumeSource
+	// TODO: GCEPersistentDisk *corev1.GCEPersistentDiskVolumeSource
+	// TODO: AWSElasticBlockStore *corev1.AWSElasticBlockStoreVolumeSource
+	// TODO: GitRepo *corev1.GitRepoVolumeSource
+	case volume.Secret != nil:
+	case volume.NFS != nil:
+	// TODO: ISCSI *ISCSIVolumeSource
+	// TODO: Glusterfs *GlusterfsVolumeSource
+	// TODO: PersistentVolumeClaim *PersistentVolumeClaimVolumeSource
+	// TODO: RBD *RBDVolumeSource
+	// TODO: FlexVolume *FlexVolumeSource
+	// TODO: Cinder *CinderVolumeSource
+	// TODO: CephFS *CephFSVolumeSource
+	// TODO: Flocker *FlockerVolumeSource
+	// TODO: DownwardAPI *DownwardAPIVolumeSource
+	// TODO: FC *FCVolumeSource
+	// TODO: AzureFile *AzureFileVolumeSource
+	case volume.ConfigMap != nil:
+	// TODO: VsphereVolume *VsphereVirtualDiskVolumeSource
+	// TODO: Quobyte *QuobyteVolumeSource
+	// TODO: AzureDisk *AzureDiskVolumeSource
+	// TODO: PhotonPersistentDisk *PhotonPersistentDiskVolumeSource
 	case volume.Projected != nil:
 		// TODO: Solve this with another virtio-fs mount?
 		for _, source := range volume.Projected.Sources {
 			switch {
-			case source.ServiceAccountToken != nil:
-				// TODO
 			case source.Secret != nil:
+				// TODO
+			case source.DownwardAPI != nil:
 				// TODO
 			case source.ConfigMap != nil:
 				// TODO
+			case source.ServiceAccountToken != nil:
+				// TODO
 			}
 		}
-		// TODO: We stub projected volumes for now
-		b.volumeExtras[volumeID] = &OSvExtras{}
+	// TODO: PortworxVolume *PortworxVolumeSource
+	// TODO: ScaleIO *ScaleIOVolumeSource
+	// TODO: StorageOS *StorageOSVolumeSource
+	// TODO: CSI *CSIVolumeSource
+	// TODO: Ephemeral *EphemeralVolumeSource
 	default:
-		err := errors.Errorf("unsupported volume %q", volumeID)
-		return errors.Wrap(err, "osv")
+		err := errors.Errorf("volumeMount %q has an unsupported type", volumeMount.Name)
+		return nil, errors.Wrap(err, "osv")
 	}
-	return nil
-}
-
-func (b *OSvBackend) UpdateVolume(volumeID string, volume corev1.Volume) error {
-	// TODO: Can we do this more performant?
-	if err := b.DeleteVolume(volumeID); err != nil {
-		return err
-	}
-	return b.CreateVolume(volumeID, volume)
-}
-
-func (b *OSvBackend) DeleteVolume(volumeID string) error {
-	// Delete volume
-	volumePath := b.volumePath(volumeID)
-	if err := os.RemoveAll(volumePath); os.IsNotExist(err) {
-		err = errors.Errorf("volume %q does not exist", volumeID)
-		return errors.Wrap(err, "osv")
-	}
-	return nil
+	return extras, nil
 }
 
 // Ensure interface is implemented
@@ -562,24 +528,24 @@ func (b *OSvBackend) imageDiskPath(imageRef string, hypervisor string) string {
 	return fmt.Sprintf("%s.%s", imageBasePath, hypervisor)
 }
 
-func (b *OSvBackend) instanceDir(instanceID string) string {
-	return filepath.Join(capstan.ConfigDir(), "instances/qemu", instanceID)
+func (b *OSvBackend) instanceDir(instance *Instance) string {
+	return filepath.Join(capstan.ConfigDir(), "instances/qemu", instance.ID)
 }
 
-func (b *OSvBackend) instanceConfPath(instanceID string) string {
-	return filepath.Join(b.instanceDir(instanceID), "osv.config")
+func (b *OSvBackend) instanceConfPath(instance *Instance) string {
+	return filepath.Join(b.instanceDir(instance), "osv.config")
 }
 
-func (b *OSvBackend) instanceMoniPath(instanceID string) string {
-	return filepath.Join(b.instanceDir(instanceID), "osv.monitor")
+func (b *OSvBackend) instanceMoniPath(instance *Instance) string {
+	return filepath.Join(b.instanceDir(instance), "osv.monitor")
 }
 
-func (b *OSvBackend) instanceSockPath(instanceID string) string {
-	return filepath.Join(b.instanceDir(instanceID), "osv.socket")
+func (b *OSvBackend) instanceSockPath(instance *Instance) string {
+	return filepath.Join(b.instanceDir(instance), "osv.socket")
 }
 
-func (b *OSvBackend) instanceLogsPath(instanceID string) string {
-	return filepath.Join(b.instanceDir(instanceID), "osv.logs")
+func (b *OSvBackend) instanceLogsPath(instance *Instance) string {
+	return filepath.Join(b.instanceDir(instance), "osv.logs")
 }
 
 func (b *OSvBackend) volumesDir() string {
