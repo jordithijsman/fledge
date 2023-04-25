@@ -55,7 +55,7 @@ func (p *Provider) newInstanceVolume(namespace string, podName string, volume co
 	instanceVolume := InstanceVolume{ID: instanceVolumeID, Volume: volume}
 	switch {
 	case volume.HostPath != nil:
-	// TODO: EmptyDir *corev1.EmptyDirVolumeSource
+	case volume.EmptyDir != nil:
 	// TODO: GCEPersistentDisk *corev1.GCEPersistentDiskVolumeSource
 	// TODO: AWSElasticBlockStore *corev1.AWSElasticBlockStoreVolumeSource
 	// TODO: GitRepo *corev1.GitRepoVolumeSource

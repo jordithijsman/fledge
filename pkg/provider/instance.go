@@ -18,6 +18,7 @@ type Instance struct {
 	Backend Backend
 	*corev1.Container
 	VolumeMounts []InstanceVolumeMount
+	HostNetwork  bool
 }
 
 // newInstance extracts the information it needs from the Pod and lets all the rest be handled by the Backend
@@ -83,6 +84,7 @@ func (p *Provider) newInstance(ctx context.Context, pod *corev1.Pod, container *
 		Backend:      backend,
 		Container:    container,
 		VolumeMounts: volumeMounts,
+		HostNetwork:  pod.Spec.HostNetwork,
 	}, nil
 }
 

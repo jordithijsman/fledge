@@ -376,12 +376,11 @@ func (b *OSvBackend) DeleteInstance(instance *Instance) error {
 }
 
 func (b *OSvBackend) GetInstanceLogs(instance *Instance, opts api.ContainerLogOpts) (io.ReadCloser, error) {
-	// TODO: Check opts
-	logsFile, err := os.Open(b.instanceLogsPath(instance))
+	containerLogger, err := NewContainerLogger(b.instanceLogsPath(instance), opts)
 	if err != nil {
 		return nil, errors.Wrap(err, "osv")
 	}
-	return logsFile, nil
+	return containerLogger, nil
 }
 
 func (b *OSvBackend) RunInInstance(instance *Instance, cmd []string, attach api.AttachIO) error {
@@ -458,8 +457,8 @@ func (b *OSvBackend) getVolumeMountExtras(volumeMountIndex int, volumeMount Inst
 	// TODO: GCEPersistentDisk *corev1.GCEPersistentDiskVolumeSource
 	// TODO: AWSElasticBlockStore *corev1.AWSElasticBlockStoreVolumeSource
 	// TODO: GitRepo *corev1.GitRepoVolumeSource
-	case volume.Secret != nil:
-	case volume.NFS != nil:
+	case volume.Secret != nil: // TODO (ignored)
+	case volume.NFS != nil: // TODO (ignored)
 	// TODO: ISCSI *ISCSIVolumeSource
 	// TODO: Glusterfs *GlusterfsVolumeSource
 	// TODO: PersistentVolumeClaim *PersistentVolumeClaimVolumeSource
@@ -471,7 +470,7 @@ func (b *OSvBackend) getVolumeMountExtras(volumeMountIndex int, volumeMount Inst
 	// TODO: DownwardAPI *DownwardAPIVolumeSource
 	// TODO: FC *FCVolumeSource
 	// TODO: AzureFile *AzureFileVolumeSource
-	case volume.ConfigMap != nil:
+	case volume.ConfigMap != nil: // TODO (ignored)
 	// TODO: VsphereVolume *VsphereVirtualDiskVolumeSource
 	// TODO: Quobyte *QuobyteVolumeSource
 	// TODO: AzureDisk *AzureDiskVolumeSource
@@ -480,13 +479,13 @@ func (b *OSvBackend) getVolumeMountExtras(volumeMountIndex int, volumeMount Inst
 		// TODO: Solve this with another virtio-fs mount?
 		for _, source := range volume.Projected.Sources {
 			switch {
-			case source.Secret != nil:
+			case source.Secret != nil: // TODO (ignored)
 				// TODO
-			case source.DownwardAPI != nil:
+			case source.DownwardAPI != nil: // TODO (ignored)
 				// TODO
-			case source.ConfigMap != nil:
+			case source.ConfigMap != nil: // TODO (ignored)
 				// TODO
-			case source.ServiceAccountToken != nil:
+			case source.ServiceAccountToken != nil: // TODO (ignored)
 				// TODO
 			}
 		}

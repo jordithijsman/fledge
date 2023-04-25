@@ -91,7 +91,6 @@ func (p *Provider) CreatePod(ctx context.Context, pod *corev1.Pod) error {
 			return errors.Wrapf(err, "failed to create instance %q", instance.ID)
 		}
 		instancesToStart = append(instancesToStart, instance)
-		p.instances[instance.ID] = instance
 
 		//bindmounts := []string{}
 		//bindmountsro := []string{}
@@ -239,6 +238,7 @@ func (p *Provider) CreatePod(ctx context.Context, pod *corev1.Pod) error {
 		if err := instance.Start(); err != nil {
 			log.G(ctx).Errorf("failed to start instance %q: %s", instance.ID, err)
 		}
+		p.instances[instance.ID] = instance
 	}
 	//p.podResourceManager.Watch(pod)
 	return nil
