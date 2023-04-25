@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/virtual-kubelet/virtual-kubelet/log"
 	"github.com/virtual-kubelet/virtual-kubelet/node/api"
 	"github.com/virtual-kubelet/virtual-kubelet/node/api/statsv1alpha1"
@@ -16,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -225,6 +227,19 @@ func (p *BrokerProvider) RunInContainer(ctx context.Context, namespace, podName,
 	return errors.New("RunInContainer not implemented")
 }
 
+// AttachToContainer attaches to the executing process of a container in the pod, copying data
+// between in/out/err and the container's stdin/stdout/stderr.
+func (p *BrokerProvider) AttachToContainer(ctx context.Context, namespace, name, container string, attach api.AttachIO) error {
+	ctx, span := trace.StartSpan(ctx, "RunInContainer")
+	defer span.End()
+
+	// Add pod and container attributes to the current span.
+	ctx = addAttributes(ctx, span, namespaceKey, namespace, nameKey, name, containerNameKey, container)
+
+	log.G(ctx).Debugf("receive AttachToContainer %q", container)
+	return nil
+}
+
 // GetPodStatus retrieves the status of a pod by name from the provider.
 // The PodStatus returned is expected to be immutable, and may be accessed
 // concurrently outside of the calling goroutine. Therefore it is recommended
@@ -268,6 +283,130 @@ func (p *BrokerProvider) GetStatsSummary(ctx context.Context) (*statsv1alpha1.Su
 	// TODO Implement
 
 	return nil, errors.New("GetStatsSummary not implemented")
+}
+
+func (p *BrokerProvider) generateMockMetrics(metricsMap map[string][]*dto.Metric, resourceType string, label []*dto.LabelPair) map[string][]*dto.Metric {
+	var (
+		cpuMetricSuffix    = "_cpu_usage_seconds_total"
+		memoryMetricSuffix = "_memory_working_set_bytes"
+		dummyValue         = float64(100)
+	)
+
+	if metricsMap == nil {
+		metricsMap = map[string][]*dto.Metric{}
+	}
+
+	finalCpuMetricName := resourceType + cpuMetricSuffix
+	finalMemoryMetricName := resourceType + memoryMetricSuffix
+
+	newCPUMetric := dto.Metric{
+		Label: label,
+		Counter: &dto.Counter{
+			Value: &dummyValue,
+		},
+	}
+	newMemoryMetric := dto.Metric{
+		Label: label,
+		Gauge: &dto.Gauge{
+			Value: &dummyValue,
+		},
+	}
+	// if metric family exists add to metric array
+	if cpuMetrics, ok := metricsMap[finalCpuMetricName]; ok {
+		metricsMap[finalCpuMetricName] = append(cpuMetrics, &newCPUMetric)
+	} else {
+		metricsMap[finalCpuMetricName] = []*dto.Metric{&newCPUMetric}
+	}
+	if memoryMetrics, ok := metricsMap[finalMemoryMetricName]; ok {
+		metricsMap[finalMemoryMetricName] = append(memoryMetrics, &newMemoryMetric)
+	} else {
+		metricsMap[finalMemoryMetricName] = []*dto.Metric{&newMemoryMetric}
+	}
+
+	return metricsMap
+}
+
+func (p *BrokerProvider) getMetricType(metricName string) *dto.MetricType {
+	var (
+		dtoCounterMetricType = dto.MetricType_COUNTER
+		dtoGaugeMetricType   = dto.MetricType_GAUGE
+		cpuMetricSuffix      = "_cpu_usage_seconds_total"
+		memoryMetricSuffix   = "_memory_working_set_bytes"
+	)
+	if strings.HasSuffix(metricName, cpuMetricSuffix) {
+		return &dtoCounterMetricType
+	}
+	if strings.HasSuffix(metricName, memoryMetricSuffix) {
+		return &dtoGaugeMetricType
+	}
+
+	return nil
+}
+
+func (p *BrokerProvider) GetMetricsResource(ctx context.Context) ([]*dto.MetricFamily, error) {
+	var span trace.Span
+	ctx, span = trace.StartSpan(ctx, "GetMetricsResource") //nolint: ineffassign,staticcheck
+	defer span.End()
+
+	var (
+		nodeNameStr      = "NodeName"
+		podNameStr       = "PodName"
+		containerNameStr = "containerName"
+	)
+	nodeLabels := []*dto.LabelPair{
+		{
+			Name:  &nodeNameStr,
+			Value: &p.nodeName,
+		},
+	}
+
+	metricsMap := p.generateMockMetrics(nil, "node", nodeLabels)
+	pods, _ := p.runtime.GetPods()
+	for _, pod := range pods {
+		podLabels := []*dto.LabelPair{
+			{
+				Name:  &nodeNameStr,
+				Value: &p.nodeName,
+			},
+			{
+				Name:  &podNameStr,
+				Value: &pod.Name,
+			},
+		}
+		metricsMap = p.generateMockMetrics(metricsMap, "pod", podLabels)
+		for _, container := range pod.Spec.Containers {
+			containerLabels := []*dto.LabelPair{
+				{
+					Name:  &nodeNameStr,
+					Value: &p.nodeName,
+				},
+				{
+					Name:  &podNameStr,
+					Value: &pod.Name,
+				},
+				{
+					Name:  &containerNameStr,
+					Value: &container.Name,
+				},
+			}
+			metricsMap = p.generateMockMetrics(metricsMap, "container", containerLabels)
+		}
+	}
+
+	res := []*dto.MetricFamily{}
+	for metricName := range metricsMap {
+		tempName := metricName
+		tempMetrics := metricsMap[tempName]
+
+		metricFamily := dto.MetricFamily{
+			Name:   &tempName,
+			Type:   p.getMetricType(tempName),
+			Metric: tempMetrics,
+		}
+		res = append(res, &metricFamily)
+	}
+
+	return res, nil
 }
 
 // TODO: Implement NodeChanged for performance reasons

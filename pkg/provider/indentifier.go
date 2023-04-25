@@ -14,11 +14,11 @@ func podToIdentifier(pod *corev1.Pod) string {
 	return joinIdentifierFromParts(pod.Namespace, pod.Name)
 }
 
-func podAndContainerToIdentifier(pod *corev1.Pod, container corev1.Container) string {
+func podAndContainerToIdentifier(pod *corev1.Pod, container *corev1.Container) string {
 	return joinIdentifierFromParts(podToIdentifier(pod), container.Name)
 }
 
-func podAndVolumeToIdentifier(pod *corev1.Pod, volume corev1.Volume) string {
+func podAndVolumeToIdentifier(pod *corev1.Pod, volume *corev1.Volume) string {
 	return joinIdentifierFromParts(podToIdentifier(pod), volume.Name)
 }
 

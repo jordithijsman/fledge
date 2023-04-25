@@ -2,17 +2,25 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cio"
+	"github.com/containerd/containerd/errdefs"
+	"github.com/containerd/containerd/log"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
 	"github.com/containerd/containerd/platforms"
+	gocni "github.com/containerd/go-cni"
+	"github.com/containerd/nerdctl/pkg/labels"
 	"github.com/google/uuid"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
+	"gitlab.ilabt.imec.be/fledge/service/pkg/storage"
 	"io"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -46,9 +54,9 @@ func NewContainerdBackend(cfg Config) (*ContainerdBackend, error) {
 	return b, nil
 }
 
-func (b *ContainerdBackend) GetInstanceStatus(instanceID string) (corev1.ContainerStatus, error) {
+func (b *ContainerdBackend) GetInstanceStatus(instance *Instance) (corev1.ContainerStatus, error) {
 	// Load existing container
-	container, err := b.client.LoadContainer(b.context, instanceID)
+	container, err := b.client.LoadContainer(b.context, instance.ID)
 	if err != nil {
 		err = errors.Wrap(err, "containerd")
 		return corev1.ContainerStatus{}, err
@@ -103,43 +111,74 @@ func (b *ContainerdBackend) GetInstanceStatus(instanceID string) (corev1.Contain
 	}, nil
 }
 
-func (b *ContainerdBackend) CreateInstance(instanceID string, instance corev1.Container) error {
+func (b *ContainerdBackend) CreateInstance(instance *Instance) error {
+	// Clean up pre-existing instance (TODO can we do this in SIGKILL or on startup?)
+	err := b.DeleteInstance(instance)
+	if err != nil {
+		log.G(b.context).Error(err)
+	}
+
 	// Container.Image
 	image, err := b.client.GetImage(b.context, instance.Image)
 	if (err != nil && instance.ImagePullPolicy == corev1.PullIfNotPresent) || instance.ImagePullPolicy == corev1.PullAlways {
 		if instance.ImagePullPolicy == corev1.PullAlways {
 			b.client.ImageService().Delete(b.context, instance.Image)
 		}
-		image, err = b.client.Pull(b.context, instance.Image, containerd.WithPullUnpack)
+		pullOpts := []containerd.RemoteOpt{containerd.WithPullUnpack, containerd.WithSchema1Conversion}
+		image, err = b.client.Pull(b.context, instance.Image, pullOpts...)
 		if err != nil {
 			return errors.Wrap(err, "containerd")
 		}
 	}
 
-	// Get specification options
-	specOpts := []oci.SpecOpts{oci.WithImageConfig(image)}
-	// Container.Command
-	processArgs := append(instance.Command, instance.Args...)
-	if len(processArgs) > 0 {
-		specOpts = append(specOpts, oci.WithProcessArgs(processArgs...))
+	// Get container and specification options
+	containerOpts := []containerd.NewContainerOpts{
+		containerd.WithImage(image),
+		containerd.WithImageConfigLabels(image),
+		containerd.WithSnapshotter(containerd.DefaultSnapshotter),
+		containerd.WithNewSnapshot(instance.ID, image),
+		containerd.WithImageStopSignal(image, "SIGTERM"),
 	}
+	var specOpts []oci.SpecOpts
+	// Container.Command
+	imageArgs := append(instance.Command, instance.Args...)
 	// Container.WorkingDir
 	processCwd := instance.WorkingDir
 	if len(processCwd) > 0 {
 		specOpts = append(specOpts, oci.WithProcessCwd(processCwd))
 	}
-	// Container.Ports (TODO)
+	// Container.Ports
+	portsContainerOpts, err := b.getPortsOpts(instance.Ports)
+	if err != nil {
+		return errors.Wrap(err, "containerd")
+	}
+	containerOpts = append(containerOpts, portsContainerOpts...)
 	// Container.EnvFrom (TODO)
 	// Container.Env
 	env := make([]string, 0)
 	for _, envVar := range instance.Env {
-		if envVar.ValueFrom == nil {
-			env = append(env, fmt.Sprintf("%q=%q", envVar.Name, envVar.Value))
+		if envVar.ValueFrom != nil {
+			// TODO
+			envVar = corev1.EnvVar{
+				Name:  "DUMMY",
+				Value: "",
+			}
 		}
+		// Expand variable in the container arguments
+		for i, a := range imageArgs {
+			imageArgs[i] = strings.Replace(a, fmt.Sprintf("$(%s)", envVar.Name), envVar.Value, -1)
+		}
+		env = append(env, fmt.Sprintf("%s=%q", envVar.Name, envVar.Value))
 	}
 	specOpts = append(specOpts, oci.WithEnv(env))
 	// Container.Resources (TODO)
-	// Container.VolumeMounts (TODO)
+	// Container.VolumeMounts
+	volumeMountsContainerOpts, volumeMountsSpecOpts, err := b.getVolumeMountsOpts(instance.VolumeMounts)
+	if err != nil {
+		return errors.Wrap(err, "containerd")
+	}
+	containerOpts = append(containerOpts, volumeMountsContainerOpts...)
+	specOpts = append(specOpts, volumeMountsSpecOpts...)
 	// Container.VolumeDevices (TODO)
 	// Container.LivenessProbe (TODO)
 	// Container.ReadinessProbe (TODO)
@@ -151,22 +190,56 @@ func (b *ContainerdBackend) CreateInstance(instanceID string, instance corev1.Co
 	// Container.StdinOnce (TODO)
 	// Container.TTY (TODO)
 
+	// Pod.HostNetwork
+	if instance.HostNetwork {
+		hostNetworkSpecOpts := []oci.SpecOpts{
+			oci.WithHostNamespace(specs.NetworkNamespace),
+			oci.WithHostHostsFile,
+			oci.WithHostResolvconf,
+		}
+		specOpts = append(specOpts, hostNetworkSpecOpts...)
+	}
+
+	// Add ImageConfig
+	if len(imageArgs) == 0 {
+		specOpts = append(specOpts, oci.WithImageConfig(image))
+	} else {
+		specOpts = append(specOpts, oci.WithImageConfigArgs(image, imageArgs))
+	}
+
 	// Create container
+	containerOpts = append(containerOpts, containerd.WithNewSpec(specOpts...))
 	container, err := b.client.NewContainer(
 		b.context,
-		instanceID,
-		containerd.WithImage(image),
-		containerd.WithNewSnapshot(fmt.Sprintf("%s_snapshot", instanceID), image),
-		containerd.WithNewSpec(specOpts...),
+		instance.ID,
+		containerOpts...,
 	)
 	if err != nil {
 		return errors.Wrap(err, "containerd")
 	}
 
+	// Create logsFile
+	r, w, _ := os.Pipe()
+	if err = os.MkdirAll(b.instanceDir(instance), 0775); err != nil {
+		return errors.Wrap(err, "containerd")
+	}
+	logsFile, err := os.Create(b.instanceLogsPath(instance))
+	if err != nil {
+		return errors.Wrap(err, "containerd")
+	}
+	// Write everything to a log file continuously
+	go func() { _, _ = io.Copy(logsFile, r) }()
+
+	// Create container IO
+	cioOpts := []cio.Opt{cio.WithStreams(nil, w, w)}
+	if instance.TTY {
+		cioOpts = append(cioOpts, cio.WithTerminal)
+	}
+	ioCreator := cio.NewCreator(cioOpts...)
 	// Create new task
 	containerTask, err := container.NewTask(
 		b.context,
-		cio.NewCreator(cio.WithStdio),
+		ioCreator,
 	)
 	if err != nil {
 		return errors.Wrap(err, "containerd")
@@ -181,9 +254,9 @@ func (b *ContainerdBackend) CreateInstance(instanceID string, instance corev1.Co
 	return nil
 }
 
-func (b *ContainerdBackend) StartInstance(instanceID string) error {
+func (b *ContainerdBackend) StartInstance(instance *Instance) error {
 	// Load existing container
-	container, err := b.client.LoadContainer(b.context, instanceID)
+	container, err := b.client.LoadContainer(b.context, instance.ID)
 	if err != nil {
 		return errors.Wrap(err, "containerd")
 	}
@@ -202,17 +275,17 @@ func (b *ContainerdBackend) StartInstance(instanceID string) error {
 	return nil
 }
 
-func (b *ContainerdBackend) UpdateInstance(instanceID string, instance corev1.Container) error {
+func (b *ContainerdBackend) UpdateInstance(instance *Instance) error {
 	// TODO: Can we do this more performant?
-	if err := b.DeleteInstance(instanceID); err != nil {
+	if err := b.DeleteInstance(instance); err != nil {
 		return err
 	}
-	return b.CreateInstance(instanceID, instance)
+	return b.CreateInstance(instance)
 }
 
-func (b *ContainerdBackend) KillInstance(instanceID string, signal syscall.Signal) error {
+func (b *ContainerdBackend) KillInstance(instance *Instance, signal syscall.Signal) error {
 	// Load existing container
-	container, err := b.client.LoadContainer(b.context, instanceID)
+	container, err := b.client.LoadContainer(b.context, instance.ID)
 	if err != nil {
 		return errors.Wrap(err, "containerd")
 	}
@@ -232,29 +305,58 @@ func (b *ContainerdBackend) KillInstance(instanceID string, signal syscall.Signa
 	return nil
 }
 
-func (b *ContainerdBackend) DeleteInstance(instanceID string) error {
+func (b *ContainerdBackend) DeleteInstance(instance *Instance) error {
 	// Load existing container
-	container, err := b.client.LoadContainer(b.context, instanceID)
+	container, err := b.client.LoadContainer(b.context, instance.ID)
+	if errdefs.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return errors.Wrap(err, "containerd")
+	}
+
+	err = func() error {
+		//Load existing task
+		task, err := container.Task(b.context, nil)
+		if errdefs.IsNotFound(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		// Delete task
+		tDeleteOpts := []containerd.ProcessDeleteOpts{containerd.WithProcessKill}
+		if _, err = task.Delete(b.context, tDeleteOpts...); err != nil {
+			return err
+		}
+		return nil
+	}()
 	if err != nil {
 		return errors.Wrap(err, "containerd")
 	}
 
 	// Delete container
-	if err = container.Delete(b.context); err != nil {
+	cDeleteOpts := []containerd.DeleteOpts{containerd.WithSnapshotCleanup}
+	if err = container.Delete(b.context, cDeleteOpts...); err != nil {
 		return errors.Wrap(err, "containerd")
 	}
 
 	return nil
 }
 
-func (b *ContainerdBackend) GetInstanceLogs(instanceID string, opts api.ContainerLogOpts) (io.ReadCloser, error) {
-	// TODO: Backing file
-	return io.NopCloser(strings.NewReader("")), nil
+func (b *ContainerdBackend) GetInstanceLogs(instance *Instance, opts api.ContainerLogOpts) (io.ReadCloser, error) {
+	// TODO: Check opts
+	logsFile, err := os.Open(b.instanceLogsPath(instance))
+	if err != nil {
+		return nil, errors.Wrap(err, "containerd")
+	}
+	return logsFile, nil
 }
 
-func (b *ContainerdBackend) RunInInstance(instanceID string, cmd []string, attach api.AttachIO) error {
+func (b *ContainerdBackend) RunInInstance(instance *Instance, cmd []string, attach api.AttachIO) error {
 	// Load existing container
-	container, err := b.client.LoadContainer(b.context, instanceID)
+	container, err := b.client.LoadContainer(b.context, instance.ID)
 	if err != nil {
 		return errors.Wrap(err, "containerd")
 	}
@@ -311,21 +413,119 @@ func (b *ContainerdBackend) RunInInstance(instanceID string, cmd []string, attac
 	return nil
 }
 
-func (b *ContainerdBackend) CreateVolume(volumeID string, volume corev1.Volume) error {
-	return nil
-}
-
-func (b *ContainerdBackend) UpdateVolume(volumeID string, volume corev1.Volume) error {
-	// TODO: Can we do this more performant?
-	if err := b.DeleteVolume(volumeID); err != nil {
-		return err
+func (b *ContainerdBackend) getPortsOpts(containerPorts []corev1.ContainerPort) ([]containerd.NewContainerOpts, error) {
+	// TODO:  ad-hoc; check nerdctl/cmd/nerdctl/container_run_network.go
+	var ports []gocni.PortMapping
+	for _, cp := range containerPorts {
+		// TODO: Just expose a port for now, do nothing special
+		port := gocni.PortMapping{
+			HostPort:      cp.HostPort,
+			ContainerPort: cp.ContainerPort,
+			Protocol:      string(cp.Protocol),
+			HostIP:        cp.HostIP,
+		}
+		ports = append(ports, port)
 	}
-	return b.CreateVolume(volumeID, volume)
+
+	portsJson, err := json.Marshal(ports)
+	if err != nil {
+		return nil, errors.Wrap(err, "containerd")
+	}
+	portsLabels := map[string]string{labels.Ports: string(portsJson)}
+	return []containerd.NewContainerOpts{containerd.WithAdditionalContainerLabels(portsLabels)}, nil
 }
 
-func (b *ContainerdBackend) DeleteVolume(volumeID string) error {
-	return nil
+func (b *ContainerdBackend) getVolumeMountsOpts(volumeMounts []InstanceVolumeMount) ([]containerd.NewContainerOpts, []oci.SpecOpts, error) {
+	var mounts []specs.Mount
+	for _, vm := range volumeMounts {
+		v := vm.Volume
+		switch {
+		case v.HostPath != nil:
+			switch *v.HostPath.Type {
+			case corev1.HostPathDirectoryOrCreate:
+				if err := os.MkdirAll(v.HostPath.Path, 0755); err != nil {
+					return nil, nil, err
+				}
+				fallthrough
+			case "":
+				fallthrough
+			case corev1.HostPathDirectory:
+			default:
+				return nil, nil, errors.Errorf("volumeMount %q has unsupported hostPath.type %q", v.ID, *v.HostPath.Type)
+			}
+			options := []string{"bind"}
+			if vm.ReadOnly {
+				options = append(options, "ro")
+			}
+			mount := specs.Mount{
+				Type:        "bind",
+				Source:      v.HostPath.Path,
+				Destination: vm.MountPath,
+				Options:     options,
+			}
+			mounts = append(mounts, mount)
+		case v.EmptyDir != nil: // TODO (ignored)
+		// TODO: GCEPersistentDisk *corev1.GCEPersistentDiskVolumeSource
+		// TODO: AWSElasticBlockStore *corev1.AWSElasticBlockStoreVolumeSource
+		// TODO: GitRepo *corev1.GitRepoVolumeSource
+		case v.Secret != nil: // TODO (ignored)
+		case v.NFS != nil: // TODO (ignored)
+		// TODO: ISCSI *ISCSIVolumeSource
+		// TODO: Glusterfs *GlusterfsVolumeSource
+		// TODO: PersistentVolumeClaim *PersistentVolumeClaimVolumeSource
+		// TODO: RBD *RBDVolumeSource
+		// TODO: FlexVolume *FlexVolumeSource
+		// TODO: Cinder *CinderVolumeSource
+		// TODO: CephFS *CephFSVolumeSource
+		// TODO: Flocker *FlockerVolumeSource
+		// TODO: DownwardAPI *DownwardAPIVolumeSource
+		// TODO: FC *FCVolumeSource
+		// TODO: AzureFile *AzureFileVolumeSource
+		case v.ConfigMap != nil: // TODO (ignored)
+		// TODO: VsphereVolume *VsphereVirtualDiskVolumeSource
+		// TODO: Quobyte *QuobyteVolumeSource
+		// TODO: AzureDisk *AzureDiskVolumeSource
+		// TODO: PhotonPersistentDisk *PhotonPersistentDiskVolumeSource
+		case v.Projected != nil:
+			// TODO: Solve this with another virtio-fs mount?
+			for _, s := range v.Projected.Sources {
+				switch {
+				case s.Secret != nil: // TODO (ignored)
+					// TODO
+				case s.DownwardAPI != nil: // TODO (ignored)
+					// TODO
+				case s.ConfigMap != nil: // TODO (ignored)
+					// TODO
+				case s.ServiceAccountToken != nil: // TODO (ignored)
+					// TODO
+				}
+			}
+		// TODO: PortworxVolume *PortworxVolumeSource
+		// TODO: ScaleIO *ScaleIOVolumeSource
+		// TODO: StorageOS *StorageOSVolumeSource
+		// TODO: CSI *CSIVolumeSource
+		// TODO: Ephemeral *EphemeralVolumeSource
+		default:
+			err := errors.Errorf("volumeMount %q has an unsupported type", vm.Name)
+			return nil, nil, errors.Wrap(err, "osv")
+		}
+	}
+
+	mountsJson, err := json.Marshal(mounts)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "containerd")
+	}
+	mountsLabels := map[string]string{labels.Mounts: string(mountsJson)}
+	return []containerd.NewContainerOpts{containerd.WithAdditionalContainerLabels(mountsLabels)}, []oci.SpecOpts{oci.WithMounts(mounts)}, nil
 }
 
 // Ensure interface is implemented
 var _ Backend = (*ContainerdBackend)(nil)
+
+func (b *ContainerdBackend) instanceDir(instance *Instance) string {
+	return storage.InstancePath(instance.ID)
+}
+
+func (b *ContainerdBackend) instanceLogsPath(instance *Instance) string {
+	return filepath.Join(b.instanceDir(instance), "current.logs")
+}

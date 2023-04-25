@@ -79,7 +79,7 @@ func ImageGetConfigWithClient(rc *regclient.RegClient, ctx context.Context, r re
 	// Check if this manifest is supported
 	manifestMediaType := manifestDesc.GetDescriptor().MediaType
 	switch manifestMediaType {
-	case types.MediaTypeDocker1Manifest, types.MediaTypeDocker1ManifestSigned, types.MediaTypeDocker2ImageConfig, types.MediaTypeOCI1Manifest:
+	case types.MediaTypeDocker1Manifest, types.MediaTypeDocker1ManifestSigned, types.MediaTypeDocker2Manifest, types.MediaTypeOCI1Manifest:
 	case types.MediaTypeDocker2ManifestList, types.MediaTypeOCI1ManifestList:
 	default:
 		return ociv1ext.Image{}, errors.Errorf("image %s has an unsupported media type %s", r.CommonName(), manifestMediaType)
@@ -105,7 +105,8 @@ func ImageGetConfigWithClient(rc *regclient.RegClient, ctx context.Context, r re
 	if img, ok := manifestDesc.(manifest.Imager); ok {
 		configDesc, err := img.GetConfig()
 		if err != nil {
-			return ociv1ext.Image{}, err
+			// In some manifests, no config is available. This is not an error
+			return ociv1ext.Image{}, nil
 		}
 		configBlob, err := rc.BlobGet(ctx, r, configDesc)
 		if err != nil {
