@@ -127,10 +127,7 @@ func (b *OSvBackend) CreateInstance(instance *Instance) error {
 	// Container.VolumeMounts
 	instanceExtras := &OSvExtras{}
 	for i, vm := range instance.VolumeMounts {
-		parts := splitIdentifierIntoParts(instance.ID)
-		parts[len(parts)-1] = vm.Name
-		vmID := joinIdentifierFromParts(parts...)
-		volumeMountExtras, err := b.getVolumeMountExtras(vmID, i, vm)
+		volumeMountExtras, err := b.getVolumeMountExtras(i, vm)
 		if err != nil {
 			return errors.Wrap(err, "osv")
 		}
@@ -407,7 +404,7 @@ func (e *OSvExtras) extendWith(other *OSvExtras) {
 	e.vmOpts = append(e.vmOpts, other.vmOpts...)
 }
 
-func (b *OSvBackend) getVolumeMountExtras(volumeMountID string, volumeMountIndex int, volumeMount InstanceVolumeMount) (*OSvExtras, error) {
+func (b *OSvBackend) getVolumeMountExtras(volumeMountIndex int, volumeMount InstanceVolumeMount) (*OSvExtras, error) {
 	volume := volumeMount.Volume
 
 	// Create volumes directory
@@ -430,7 +427,7 @@ func (b *OSvBackend) getVolumeMountExtras(volumeMountID string, volumeMountIndex
 			fallthrough
 		case corev1.HostPathDirectory:
 		default:
-			return nil, errors.Errorf("volumeMount %q has unsupported hostPath.type %q", volumeMountID, volume.HostPath.Type)
+			return nil, errors.Errorf("volumeMount %q has unsupported hostPath.type %q", volume.ID, volume.HostPath.Type)
 		}
 		/*
 			Create options for virtio-fs socket according to scripts/run.py
@@ -438,7 +435,7 @@ func (b *OSvBackend) getVolumeMountExtras(volumeMountID string, volumeMountIndex
 			https://github.com/cloudius-systems/osv/wiki/virtio-fs
 		*/
 		// Create temporary file for virtio-fs socket
-		socketPath := filepath.Join(volumesDir, fmt.Sprintf("%s.sock", volumeMountID))
+		socketPath := filepath.Join(volumesDir, fmt.Sprintf("%s.sock", volume.ID))
 		// Determine arguments for virtio-fs
 		memSize := "1G" // TODO: configure
 		extras.vmProc = [][]string{{

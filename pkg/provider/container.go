@@ -45,3 +45,16 @@ func (p *Provider) RunInContainer(ctx context.Context, namespace, podName, conta
 	}
 	return instance.Run(cmd, attach)
 }
+
+// AttachToContainer attaches to the executing process of a container in the pod, copying data
+// between in/out/err and the container's stdin/stdout/stderr.
+func (p *Provider) AttachToContainer(ctx context.Context, namespace, name, container string, attach api.AttachIO) error {
+	ctx, span := trace.StartSpan(ctx, "RunInContainer")
+	defer span.End()
+
+	// Add pod and container attributes to the current span.
+	ctx = addAttributes(ctx, span, namespaceKey, namespace, nameKey, name, containerNameKey, container)
+
+	log.G(ctx).Debugf("receive AttachToContainer %q", container)
+	return nil
+}

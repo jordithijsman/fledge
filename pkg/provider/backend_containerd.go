@@ -2,17 +2,21 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
 	"github.com/containerd/containerd/platforms"
+	gocni "github.com/containerd/go-cni"
+	"github.com/containerd/nerdctl/pkg/labels"
 	"github.com/google/uuid"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
 	"io"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"os"
 	"strings"
 	"syscall"
 
@@ -116,7 +120,11 @@ func (b *ContainerdBackend) CreateInstance(instance *Instance) error {
 		}
 	}
 
-	// Get specification options
+	// Get container and specification options
+	containerOpts := []containerd.NewContainerOpts{
+		containerd.WithImage(image),
+		containerd.WithNewSnapshot(fmt.Sprintf("%s_snapshot", instance.ID), image),
+	}
 	specOpts := []oci.SpecOpts{oci.WithImageConfig(image)}
 	// Container.Command
 	processArgs := append(instance.Command, instance.Args...)
@@ -128,7 +136,12 @@ func (b *ContainerdBackend) CreateInstance(instance *Instance) error {
 	if len(processCwd) > 0 {
 		specOpts = append(specOpts, oci.WithProcessCwd(processCwd))
 	}
-	// Container.Ports (TODO)
+	// Container.Ports
+	portsContainerOpts, err := b.getPortsOpts(instance.Ports)
+	if err != nil {
+		return errors.Wrap(err, "containerd")
+	}
+	containerOpts = append(containerOpts, portsContainerOpts...)
 	// Container.EnvFrom (TODO)
 	// Container.Env
 	env := make([]string, 0)
@@ -139,7 +152,13 @@ func (b *ContainerdBackend) CreateInstance(instance *Instance) error {
 	}
 	specOpts = append(specOpts, oci.WithEnv(env))
 	// Container.Resources (TODO)
-	// Container.VolumeMounts (TODO)
+	// Container.VolumeMounts
+	volumeMountsContainerOpts, volumeMountsSpecOpts, err := b.getVolumeMountsOpts(instance.VolumeMounts)
+	if err != nil {
+		return errors.Wrap(err, "containerd")
+	}
+	containerOpts = append(containerOpts, volumeMountsContainerOpts...)
+	specOpts = append(specOpts, volumeMountsSpecOpts...)
 	// Container.VolumeDevices (TODO)
 	// Container.LivenessProbe (TODO)
 	// Container.ReadinessProbe (TODO)
@@ -152,12 +171,11 @@ func (b *ContainerdBackend) CreateInstance(instance *Instance) error {
 	// Container.TTY (TODO)
 
 	// Create container
+	containerOpts = append(containerOpts, containerd.WithNewSpec(specOpts...))
 	container, err := b.client.NewContainer(
 		b.context,
 		instance.ID,
-		containerd.WithImage(image),
-		containerd.WithNewSnapshot(fmt.Sprintf("%s_snapshot", instance.ID), image),
-		containerd.WithNewSpec(specOpts...),
+		containerOpts...,
 	)
 	if err != nil {
 		return errors.Wrap(err, "containerd")
@@ -309,6 +327,106 @@ func (b *ContainerdBackend) RunInInstance(instance *Instance, cmd []string, atta
 	}
 
 	return nil
+}
+
+func (b *ContainerdBackend) getPortsOpts(containerPorts []corev1.ContainerPort) ([]containerd.NewContainerOpts, error) {
+	// TODO:  ad-hoc; check nerdctl/cmd/nerdctl/container_run_network.go
+	var ports []gocni.PortMapping
+	for _, cp := range containerPorts {
+		// TODO: Just expose a port for now, do nothing special
+		port := gocni.PortMapping{
+			HostPort:      cp.HostPort,
+			ContainerPort: cp.ContainerPort,
+			Protocol:      string(cp.Protocol),
+			HostIP:        cp.HostIP,
+		}
+		ports = append(ports, port)
+	}
+
+	portsJson, err := json.Marshal(ports)
+	if err != nil {
+		return nil, errors.Wrap(err, "containerd")
+	}
+	portsLabels := map[string]string{labels.Ports: string(portsJson)}
+	return []containerd.NewContainerOpts{containerd.WithAdditionalContainerLabels(portsLabels)}, nil
+}
+
+func (b *ContainerdBackend) getVolumeMountsOpts(volumeMounts []InstanceVolumeMount) ([]containerd.NewContainerOpts, []oci.SpecOpts, error) {
+	var mounts []specs.Mount
+	for _, vm := range volumeMounts {
+		v := vm.Volume
+		switch {
+		case v.HostPath != nil:
+			switch *v.HostPath.Type {
+			case corev1.HostPathDirectoryOrCreate:
+				if err := os.MkdirAll(v.HostPath.Path, 0755); err != nil {
+					return nil, nil, err
+				}
+				fallthrough
+			case corev1.HostPathDirectory:
+			default:
+				return nil, nil, errors.Errorf("volumeMount %q has unsupported hostPath.type %q", v.ID, v.HostPath.Type)
+			}
+			mount := specs.Mount{
+				Type:        "none",
+				Source:      v.HostPath.Path,
+				Destination: vm.MountPath,
+				Options:     []string{},
+			}
+			mounts = append(mounts, mount)
+		// TODO: EmptyDir *corev1.EmptyDirVolumeSource
+		// TODO: GCEPersistentDisk *corev1.GCEPersistentDiskVolumeSource
+		// TODO: AWSElasticBlockStore *corev1.AWSElasticBlockStoreVolumeSource
+		// TODO: GitRepo *corev1.GitRepoVolumeSource
+		case v.Secret != nil:
+		case v.NFS != nil:
+		// TODO: ISCSI *ISCSIVolumeSource
+		// TODO: Glusterfs *GlusterfsVolumeSource
+		// TODO: PersistentVolumeClaim *PersistentVolumeClaimVolumeSource
+		// TODO: RBD *RBDVolumeSource
+		// TODO: FlexVolume *FlexVolumeSource
+		// TODO: Cinder *CinderVolumeSource
+		// TODO: CephFS *CephFSVolumeSource
+		// TODO: Flocker *FlockerVolumeSource
+		// TODO: DownwardAPI *DownwardAPIVolumeSource
+		// TODO: FC *FCVolumeSource
+		// TODO: AzureFile *AzureFileVolumeSource
+		case v.ConfigMap != nil:
+		// TODO: VsphereVolume *VsphereVirtualDiskVolumeSource
+		// TODO: Quobyte *QuobyteVolumeSource
+		// TODO: AzureDisk *AzureDiskVolumeSource
+		// TODO: PhotonPersistentDisk *PhotonPersistentDiskVolumeSource
+		case v.Projected != nil:
+			// TODO: Solve this with another virtio-fs mount?
+			for _, s := range v.Projected.Sources {
+				switch {
+				case s.Secret != nil:
+					// TODO
+				case s.DownwardAPI != nil:
+					// TODO
+				case s.ConfigMap != nil:
+					// TODO
+				case s.ServiceAccountToken != nil:
+					// TODO
+				}
+			}
+		// TODO: PortworxVolume *PortworxVolumeSource
+		// TODO: ScaleIO *ScaleIOVolumeSource
+		// TODO: StorageOS *StorageOSVolumeSource
+		// TODO: CSI *CSIVolumeSource
+		// TODO: Ephemeral *EphemeralVolumeSource
+		default:
+			err := errors.Errorf("volumeMount %q has an unsupported type", vm.Name)
+			return nil, nil, errors.Wrap(err, "osv")
+		}
+	}
+
+	mountsJson, err := json.Marshal(mounts)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "containerd")
+	}
+	mountsLabels := map[string]string{labels.Mounts: string(mountsJson)}
+	return []containerd.NewContainerOpts{containerd.WithAdditionalContainerLabels(mountsLabels)}, []oci.SpecOpts{oci.WithMounts(mounts)}, nil
 }
 
 // Ensure interface is implemented

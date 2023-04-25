@@ -10,6 +10,7 @@ import (
 // InstanceVolume is a Volume with an expanded VolumeSource
 // This makes the life of the backend a lot easier and moves work to the provider
 type InstanceVolume struct {
+	ID string
 	corev1.Volume
 	Secret    *InstanceSecretVolumeSource
 	ConfigMap *InstanceConfigMapVolumeSource
@@ -49,8 +50,9 @@ type InstanceConfigMapProjection struct {
 
 // newInstanceVolume creates a new InstanceVolume by looking up the resources of the Volume and extending them with
 // a VolumeMount to let the backend know how to mount them
-func (p *Provider) newInstanceVolume(namespace string, volume corev1.Volume) (InstanceVolume, error) {
-	instanceVolume := InstanceVolume{Volume: volume}
+func (p *Provider) newInstanceVolume(namespace string, podName string, volume corev1.Volume) (InstanceVolume, error) {
+	instanceVolumeID := joinIdentifierFromParts(namespace, podName, volume.Name)
+	instanceVolume := InstanceVolume{ID: instanceVolumeID, Volume: volume}
 	switch {
 	case volume.HostPath != nil:
 	// TODO: EmptyDir *corev1.EmptyDirVolumeSource

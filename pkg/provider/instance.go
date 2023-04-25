@@ -66,7 +66,7 @@ func (p *Provider) newInstance(ctx context.Context, pod *corev1.Pod, container *
 			err = errors.Errorf("failed to find volume %q in spec of pod %q", vm.Name, pod.Name)
 			return nil, err
 		}
-		volume, err := p.newInstanceVolume(pod.Namespace, v)
+		volume, err := p.newInstanceVolume(pod.Namespace, pod.Name, v)
 		if err != nil {
 			return nil, err
 		}
