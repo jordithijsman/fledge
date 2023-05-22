@@ -1,0 +1,19 @@
+Invoking QEMU at: /usr/bin/qemu-system-x86_64 with arguments:
+  -vnc unix:/users/maxidcle/.capstan/instances/qemu/default_papermc-98bc845df-jrb9n_papermc/vnc-domain-socket
+  -m 1024
+  -smp 1
+  -device virtio-blk-pci,id=blk0,bootindex=0,drive=hd0
+  -drive file=/users/maxidcle/.capstan/instances/qemu/default_papermc-98bc845df-jrb9n_papermc/disk.qcow2,if=none,id=hd0,aio=threads,cache=none
+  -chardev stdio,mux=on,id=stdio,signal=off
+  -device isa-serial,chardev=stdio
+  -netdev user,id=un0,net=192.168.122.0/24,host=192.168.122.1,hostfwd=tcp::43591-:25565
+  -device virtio-net-pci,netdev=un0
+  -chardev socket,id=charmonitor,path=/users/maxidcle/.capstan/instances/qemu/default_papermc-98bc845df-jrb9n_papermc/osv.monitor,server=on,wait=off
+  -mon chardev=charmonitor,id=monitor,mode=control
+  -enable-kvm
+  -cpu host,+x2apic
+  -chardev socket,id=char0,path=/users/maxidcle/.capstan/volumes/qemu/default_papermc-98bc845df-jrb9n_data.sock
+  -device vhost-user-fs-pci,queue-size=1024,chardev=char0,tag=data
+  -object memory-backend-file,id=mem,size=1G,mem-path=/dev/shm,share=on
+  -numa node,memdev=mem
+
