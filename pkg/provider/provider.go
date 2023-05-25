@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"gitlab.ilabt.imec.be/fledge/service/pkg/manager"
 	"time"
 )
@@ -36,7 +37,7 @@ type Provider struct {
 }
 
 // NewProviderConfig creates a new Provider.
-func NewProviderConfig(config Config, nodeName, operatingSystem string, resourceManager *manager.ResourceManager, internalIP string, daemonEndpointPort int32) (*Provider, error) {
+func NewProviderConfig(ctx context.Context, config Config, nodeName, operatingSystem string, resourceManager *manager.ResourceManager, internalIP string, daemonEndpointPort int32) (*Provider, error) {
 	// set defaults
 	if config.Default == "" {
 		config.Default = defaultConfig.Default
@@ -50,11 +51,11 @@ func NewProviderConfig(config Config, nodeName, operatingSystem string, resource
 	for _, e := range config.Enabled {
 		switch e {
 		case BackendContainerd:
-			if backends[e], err = NewContainerdBackend(config); err != nil {
+			if backends[e], err = NewContainerdBackend(ctx, config); err != nil {
 				return nil, err
 			}
 		case BackendOsv:
-			if backends[e], err = NewOSvBackend(config, resourceManager); err != nil {
+			if backends[e], err = NewOSvBackend(ctx, config); err != nil {
 				return nil, err
 			}
 		default:
@@ -79,13 +80,13 @@ func NewProviderConfig(config Config, nodeName, operatingSystem string, resource
 }
 
 // NewProvider creates a new Provider, which implements the PodNotifier interface
-func NewProvider(providerConfig, nodeName, operatingSystem string, resourceManager *manager.ResourceManager, internalIP string, daemonEndpointPort int32) (*Provider, error) {
+func NewProvider(ctx context.Context, providerConfig, nodeName, operatingSystem string, resourceManager *manager.ResourceManager, internalIP string, daemonEndpointPort int32) (*Provider, error) {
 	cfg, err := loadConfig(providerConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewProviderConfig(cfg, nodeName, operatingSystem, resourceManager, internalIP, daemonEndpointPort)
+	return NewProviderConfig(ctx, cfg, nodeName, operatingSystem, resourceManager, internalIP, daemonEndpointPort)
 }
 
 // loadConfig loads the given json configuration files.

@@ -1,13 +1,14 @@
 package main
 
 import (
+	"context"
 	"gitlab.ilabt.imec.be/fledge/service/cmd/fledge/internal/provider"
 	"gitlab.ilabt.imec.be/fledge/service/cmd/fledge/internal/provider/mock"
 	"gitlab.ilabt.imec.be/fledge/service/pkg/fledge"
 	backend "gitlab.ilabt.imec.be/fledge/service/pkg/provider"
 )
 
-func registerMock(s *provider.Store) {
+func registerMock(ctx context.Context, s *provider.Store) {
 	/* #nosec */
 	s.Register("mock", func(cfg provider.InitConfig) (provider.Provider, error) { //nolint:errcheck
 		return mock.NewMockProvider(
@@ -20,9 +21,10 @@ func registerMock(s *provider.Store) {
 	})
 }
 
-func registerBackend(s *provider.Store) {
+func registerBackend(ctx context.Context, s *provider.Store) {
 	s.Register("backend", func(cfg provider.InitConfig) (provider.Provider, error) {
 		return backend.NewProvider(
+			ctx,
 			cfg.ConfigPath,
 			cfg.NodeName,
 			cfg.OperatingSystem,
@@ -33,7 +35,7 @@ func registerBackend(s *provider.Store) {
 	})
 }
 
-func registerBroker(s *provider.Store) {
+func registerBroker(ctx context.Context, s *provider.Store) {
 	s.Register("broker", func(cfg provider.InitConfig) (provider.Provider, error) {
 		return fledge.NewBrokerProvider(
 			cfg.ConfigPath,

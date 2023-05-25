@@ -43,9 +43,9 @@ func main() {
 	// opts.Version = strings.Join([]string{k8sVersion, "vk", buildVersion}, "-")
 
 	s := provider.NewStore()
-	registerMock(s)
-	registerBackend(s) // FLEDGE
-	registerBroker(s)  // FLEDGE
+	registerMock(ctx, s)
+	registerBackend(ctx, s) // FLEDGE
+	registerBroker(ctx, s)  // FLEDGE
 
 	rootCmd := root.NewCommand(ctx, filepath.Base(os.Args[0]), s, opts)
 	rootCmd.AddCommand(version.NewCommand(buildVersion, buildTime), providers.NewCommand(s))

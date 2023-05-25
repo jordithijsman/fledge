@@ -5,6 +5,7 @@ import (
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // InstanceVolume is a Volume with an expanded VolumeSource
@@ -34,8 +35,9 @@ type InstanceProjectedVolumeSource struct {
 
 type InstanceVolumeProjection struct {
 	corev1.VolumeProjection
-	Secret    *InstanceSecretProjection
-	ConfigMap *InstanceConfigMapProjection
+	Secret              *InstanceSecretProjection
+	ConfigMap           *InstanceConfigMapProjection
+	ServiceAccountToken *InstanceServiceAccountTokenProjection
 }
 
 type InstanceSecretProjection struct {
@@ -44,14 +46,19 @@ type InstanceSecretProjection struct {
 }
 
 type InstanceConfigMapProjection struct {
-	corev1.ConfigMapProjection
+	*corev1.ConfigMapProjection
 	Object *corev1.ConfigMap
+}
+
+type InstanceServiceAccountTokenProjection struct {
+	*corev1.ServiceAccountTokenProjection
+	Object *corev1.Secret
 }
 
 // newInstanceVolume creates a new InstanceVolume by looking up the resources of the Volume and extending them with
 // a VolumeMount to let the backend know how to mount them
-func (p *Provider) newInstanceVolume(namespace string, podName string, volume corev1.Volume) (InstanceVolume, error) {
-	instanceVolumeID := joinIdentifierFromParts(namespace, podName, volume.Name)
+func (p *Provider) newInstanceVolume(pod *corev1.Pod, volume corev1.Volume) (InstanceVolume, error) {
+	instanceVolumeID := joinIdentifierFromParts(pod.Namespace, pod.Name, volume.Name)
 	instanceVolume := InstanceVolume{ID: instanceVolumeID, Volume: volume}
 	switch {
 	case volume.HostPath != nil:
@@ -60,7 +67,7 @@ func (p *Provider) newInstanceVolume(namespace string, podName string, volume co
 	// TODO: AWSElasticBlockStore *corev1.AWSElasticBlockStoreVolumeSource
 	// TODO: GitRepo *corev1.GitRepoVolumeSource
 	case volume.Secret != nil:
-		object, err := p.resourceManager.GetSecret(volume.Secret.SecretName, namespace)
+		object, err := p.resourceManager.GetSecret(volume.Secret.SecretName, pod.Namespace)
 		if volume.Secret.Optional != nil && !*volume.Secret.Optional && apierrors.IsNotFound(err) {
 			return InstanceVolume{}, fmt.Errorf("secret %s is required by volume %s and does not exist", volume.Secret.SecretName, volume.Name)
 		}
@@ -84,7 +91,7 @@ func (p *Provider) newInstanceVolume(namespace string, podName string, volume co
 	// TODO: FC *FCVolumeSource
 	// TODO: AzureFile *AzureFileVolumeSource
 	case volume.ConfigMap != nil:
-		object, err := p.resourceManager.GetConfigMap(volume.ConfigMap.Name, namespace)
+		object, err := p.resourceManager.GetConfigMap(volume.ConfigMap.Name, pod.Namespace)
 		if volume.ConfigMap.Optional != nil && !*volume.ConfigMap.Optional && apierrors.IsNotFound(err) {
 			return InstanceVolume{}, fmt.Errorf("configMap %s is required by volume %s and does not exist", volume.ConfigMap.Name, volume.Name)
 		}
@@ -105,13 +112,55 @@ func (p *Provider) newInstanceVolume(namespace string, podName string, volume co
 			instanceSource := InstanceVolumeProjection{VolumeProjection: source}
 			switch {
 			case source.Secret != nil:
-				// TODO
+				object, err := p.resourceManager.GetSecret(source.Secret.Name, pod.Namespace)
+				if source.Secret.Optional != nil && !*source.Secret.Optional && apierrors.IsNotFound(err) {
+					return InstanceVolume{}, fmt.Errorf("secret %s is required by volume %s and does not exist", source.Secret.Name, volume.Name)
+				}
+				if object == nil {
+					break
+				}
+				instanceSource.Secret = &InstanceSecretProjection{
+					SecretProjection: source.Secret,
+					Object:           object,
+				}
 			case source.DownwardAPI != nil:
-				// TODO
+				// TODO (ignored)
 			case source.ConfigMap != nil:
-				// TODO
+				object, err := p.resourceManager.GetConfigMap(source.ConfigMap.Name, pod.Namespace)
+				if source.ConfigMap.Optional != nil && !*source.ConfigMap.Optional && apierrors.IsNotFound(err) {
+					return InstanceVolume{}, fmt.Errorf("secret %s is required by volume %s and does not exist", source.ConfigMap.Name, volume.Name)
+				}
+				if object == nil {
+					break
+				}
+				instanceSource.ConfigMap = &InstanceConfigMapProjection{
+					ConfigMapProjection: source.ConfigMap,
+					Object:              object,
+				}
 			case source.ServiceAccountToken != nil:
-				// TODO
+				// Try to find the ServiceAccount
+				serviceAccount, err := p.resourceManager.GetServiceAccount(pod.Spec.ServiceAccountName, pod.Namespace)
+				if err != nil {
+					return InstanceVolume{}, fmt.Errorf("unable to find serviceAccountToken for volume %s", volume.Name)
+				}
+				// TODO: normally we should perform a TokenRequest here, starting from Kubernetes v1.24, in order to obtain the token?
+				object := &corev1.Secret{
+					TypeMeta: v1.TypeMeta{
+						Kind:       "ServiceAccountToken",
+						APIVersion: "",
+					},
+					ObjectMeta: v1.ObjectMeta{
+						Namespace: pod.Namespace,
+						Name:      serviceAccount.Name,
+					},
+					StringData: map[string]string{"token": "{}"}, // TODO: The actual token from the TokenRequest
+					Type:       corev1.SecretTypeServiceAccountToken,
+				}
+				instanceSource.ServiceAccountToken = &InstanceServiceAccountTokenProjection{
+					ServiceAccountTokenProjection: source.ServiceAccountToken,
+					Object:                        object,
+				}
+
 			}
 			projected.Sources = append(projected.Sources, instanceSource)
 		}

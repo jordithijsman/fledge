@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	flag "github.com/spf13/pflag"
@@ -71,7 +70,6 @@ func patchOpts(cfg *config.Config, cmd *cobra.Command, c root.Opts) {
 
 func patchOpt(flags *flag.FlagSet, name string, value string) {
 	f := flags.Lookup(name)
-	fmt.Println(name, f)
 	if !f.Changed {
 		f.Value.Set(value)
 	}

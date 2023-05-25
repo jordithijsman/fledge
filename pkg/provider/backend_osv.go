@@ -11,7 +11,6 @@ import (
 	"github.com/regclient/regclient"
 	"github.com/regclient/regclient/types"
 	"github.com/regclient/regclient/types/ref"
-	"gitlab.ilabt.imec.be/fledge/service/pkg/manager"
 	"gitlab.ilabt.imec.be/fledge/service/pkg/storage"
 	"gitlab.ilabt.imec.be/fledge/service/pkg/system"
 	"gitlab.ilabt.imec.be/fledge/service/pkg/util"
@@ -32,8 +31,7 @@ import (
 )
 
 type OSvBackend struct {
-	config          Config
-	resourceManager *manager.ResourceManager
+	config Config
 
 	context context.Context
 	repo    *capstan.Repo
@@ -43,13 +41,12 @@ type OSvBackend struct {
 	volumeExtras     map[string]*OSvExtras
 }
 
-func NewOSvBackend(cfg Config, resourceManager *manager.ResourceManager) (*OSvBackend, error) {
+func NewOSvBackend(ctx context.Context, cfg Config) (*OSvBackend, error) {
 	repo := capstan.NewRepo("")
 
 	b := &OSvBackend{
 		config:           cfg,
-		resourceManager:  resourceManager,
-		context:          context.Background(),
+		context:          ctx,
 		repo:             repo,
 		instanceStatuses: map[string]*corev1.ContainerStatus{},
 		instanceExtras:   map[string]*OSvExtras{},
@@ -98,7 +95,6 @@ func (b *OSvBackend) CreateInstance(instance *Instance) error {
 	if cmd == nil || len(cmd) == 0 {
 		cmd = []string{"runscript", "/run/default;"}
 	}
-	cmd = append([]string{"--verbose"}, cmd...) // TODO: If verbose setting?
 	// Container.WorkingDir (TODO)
 	// Container.Ports
 	networking := "bridge"
@@ -109,15 +105,18 @@ func (b *OSvBackend) CreateInstance(instance *Instance) error {
 	for _, p := range instance.Ports {
 		// TODO: Support for HostIP?
 		// TODO: Do we need NAT or can we do Bridge? Use p.HostPort?
-		hostPort, err := system.AvailablePort()
-		if err == nil {
-			natRules = append(natRules, nat.Rule{
-				HostPort:  strconv.FormatInt(int64(hostPort), 10),
-				GuestPort: strconv.FormatInt(int64(p.ContainerPort), 10),
-			})
-		} else {
-			log.G(b.context).Error(errors.Wrap(err, "osv backend"))
+		hostPort := int(p.HostPort)
+		if hostPort == 0 {
+			hostPort, err = system.AvailablePort()
+			if err != nil {
+				log.G(b.context).Error(errors.Wrap(err, "osv backend"))
+				continue
+			}
 		}
+		natRules = append(natRules, nat.Rule{
+			HostPort:  strconv.FormatInt(int64(hostPort), 10),
+			GuestPort: strconv.FormatInt(int64(p.ContainerPort), 10),
+		})
 	}
 	// Container.EnvFrom (TODO)
 	// Container.Env (TODO)
@@ -125,9 +124,15 @@ func (b *OSvBackend) CreateInstance(instance *Instance) error {
 	memory := 1024
 	cpus := 1
 	// Container.VolumeMounts
-	instanceExtras := &OSvExtras{}
+	instanceExtras := &OSvExtras{
+		vmArgs: []string{
+			"-object", fmt.Sprintf("memory-backend-file,id=mem,size=%dM,mem-path=/dev/shm,share=on", memory),
+			"-numa", "node,memdev=mem",
+		},
+		vmOpts: []string{"--rootfs=zfs", "--verbose"},
+	}
 	for i, vm := range instance.VolumeMounts {
-		volumeMountExtras, err := b.getVolumeMountExtras(i, vm)
+		volumeMountExtras, err := b.getVolumeMountExtras(instance, i, vm)
 		if err != nil {
 			return errors.Wrap(err, "osv")
 		}
@@ -393,7 +398,6 @@ type OSvExtras struct {
 	// vmArgs specify extra arguments (e.g. mounts) that need to be passed to the hypervisor
 	vmArgs []string
 	// vmOpts specify extra options (e.g. mounts) that need to be passed to the virtual machine
-	// the options can be templated by using Go template syntax for a VolumeMount
 	vmOpts []string
 }
 
@@ -403,7 +407,7 @@ func (e *OSvExtras) extendWith(other *OSvExtras) {
 	e.vmOpts = append(e.vmOpts, other.vmOpts...)
 }
 
-func (b *OSvBackend) getVolumeMountExtras(volumeMountIndex int, volumeMount InstanceVolumeMount) (*OSvExtras, error) {
+func (b *OSvBackend) getVolumeMountExtras(instance *Instance, volumeMountIndex int, volumeMount InstanceVolumeMount) (*OSvExtras, error) {
 	volume := volumeMount.Volume
 
 	// Create volumes directory
@@ -436,7 +440,6 @@ func (b *OSvBackend) getVolumeMountExtras(volumeMountIndex int, volumeMount Inst
 		// Create temporary file for virtio-fs socket
 		socketPath := filepath.Join(volumesDir, fmt.Sprintf("%s.sock", volume.ID))
 		// Determine arguments for virtio-fs
-		memSize := "1G" // TODO: configure
 		extras.vmProc = [][]string{{
 			"virtiofsd",
 			"--socket-path", socketPath,
@@ -444,14 +447,11 @@ func (b *OSvBackend) getVolumeMountExtras(volumeMountIndex int, volumeMount Inst
 			"--no-announce-submounts",
 		}}
 		extras.vmArgs = []string{
-			"-chardev", fmt.Sprintf("socket,id=char0,path=%s", socketPath),
-			"-device", fmt.Sprintf("vhost-user-fs-pci,queue-size=1024,chardev=char0,tag=%s", volume.Name),
-			"-object", fmt.Sprintf("memory-backend-file,id=mem,size=%s,mem-path=/dev/shm,share=on", memSize),
-			"-numa", "node,memdev=mem",
+			"-chardev", fmt.Sprintf("socket,id=char%d,path=%s", volumeMountIndex, socketPath),
+			"-device", fmt.Sprintf("vhost-user-fs-pci,queue-size=1024,chardev=char%d,tag=%s", volumeMountIndex, volume.Name),
 		}
 		extras.vmOpts = []string{
-			"--rootfs=zfs",
-			fmt.Sprintf("--mount-fs=virtiofs,/dev/virtiofs%s,%s", volumeMountIndex, volumeMount.MountPath),
+			fmt.Sprintf("--mount-fs=virtiofs,/dev/virtiofs%d,%s", volumeMountIndex, volumeMount.MountPath),
 		}
 	// TODO: EmptyDir *corev1.EmptyDirVolumeSource
 	// TODO: GCEPersistentDisk *corev1.GCEPersistentDiskVolumeSource
@@ -470,7 +470,44 @@ func (b *OSvBackend) getVolumeMountExtras(volumeMountIndex int, volumeMount Inst
 	// TODO: DownwardAPI *DownwardAPIVolumeSource
 	// TODO: FC *FCVolumeSource
 	// TODO: AzureFile *AzureFileVolumeSource
-	case volume.ConfigMap != nil: // TODO (ignored)
+	case volume.ConfigMap != nil:
+		// Create mountable directory for the configmaps
+		// It is not possible to create a subdirectory when mounting in OSv, so mountPath is mapped here
+		configmapsPath := filepath.Join(volumesDir, fmt.Sprintf("%s_configmaps", instance.ID), volumeMount.MountPath)
+		if err := os.MkdirAll(configmapsPath, 0755); err != nil {
+			return nil, err
+		}
+		// TODO (ignored)
+		//for k, v := range volume.ConfigMap.Items {
+		//}
+		// Create the configmap files in the directory
+		for path, data := range volume.ConfigMap.Object.Data {
+			if err := os.WriteFile(filepath.Join(configmapsPath, path), []byte(data), 0644); err != nil {
+				return nil, err
+			}
+		}
+		/*
+			Create options for virtio-fs socket according to scripts/run.py
+			https://raw.githubusercontent.com/cloudius-systems/osv/master/scripts/run.py
+			https://github.com/cloudius-systems/osv/wiki/virtio-fs
+		*/
+		// Create temporary file for virtio-fs socket
+		socketPath := filepath.Join(volumesDir, fmt.Sprintf("%s.sock", volume.ID))
+		// Determine arguments for virtio-fs
+		extras.vmProc = [][]string{{
+			"virtiofsd",
+			"--socket-path", socketPath,
+			"--shared-dir", configmapsPath,
+			"--no-announce-submounts",
+		}}
+		extras.vmArgs = []string{
+			"-chardev", fmt.Sprintf("socket,id=char0,path=%s", socketPath),
+			"-device", fmt.Sprintf("vhost-user-fs-pci,queue-size=1024,chardev=char0,tag=%s", volume.Name),
+		}
+		// It is important for OSv in order not to have a slash at the end of a mountPath, otherwise it will not work
+		extras.vmOpts = []string{
+			fmt.Sprintf("--mount-fs=virtiofs,/dev/virtiofs%d,/run/kubernetes/configmaps", volumeMountIndex),
+		}
 	// TODO: VsphereVolume *VsphereVirtualDiskVolumeSource
 	// TODO: Quobyte *QuobyteVolumeSource
 	// TODO: AzureDisk *AzureDiskVolumeSource
@@ -495,8 +532,7 @@ func (b *OSvBackend) getVolumeMountExtras(volumeMountIndex int, volumeMount Inst
 	// TODO: CSI *CSIVolumeSource
 	// TODO: Ephemeral *EphemeralVolumeSource
 	default:
-		err := errors.Errorf("volumeMount %q has an unsupported type", volumeMount.Name)
-		return nil, errors.Wrap(err, "osv")
+		return nil, errors.Errorf("volumeMount %q has an unsupported type: %+v", volumeMount.Name, volumeMount)
 	}
 	return extras, nil
 }

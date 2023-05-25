@@ -59,6 +59,12 @@ func (p *Provider) CreatePod(ctx context.Context, pod *corev1.Pod) error {
 	podID := podToIdentifier(pod)
 	p.pods[podID] = pod
 
+	// Do not deploy Kubernetes apps
+	k8sApp, ok := pod.Labels["k8s-app"]
+	if ok && (k8sApp == "calico-node" || k8sApp == "kube-proxy") {
+		return nil
+	}
+
 	// Parse volumes but create them on-demand in the provider
 	volumesToCreate := make(map[string]corev1.Volume)
 	for _, v := range pod.Spec.Volumes {

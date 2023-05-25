@@ -15,9 +15,14 @@
 package manager
 
 import (
+	"context"
+	"github.com/virtual-kubelet/virtual-kubelet/node/nodeutil"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/client-go/informers"
 	corev1listers "k8s.io/client-go/listers/core/v1"
+	"os"
+	"time"
 
 	"github.com/virtual-kubelet/virtual-kubelet/log"
 )
@@ -25,19 +30,32 @@ import (
 // ResourceManager acts as a passthrough to a cache (lister) for pods assigned to the current node.
 // It is also a passthrough to a cache (lister) for Kubernetes secrets and config maps.
 type ResourceManager struct {
-	podLister       corev1listers.PodLister
-	secretLister    corev1listers.SecretLister
-	configMapLister corev1listers.ConfigMapLister
-	serviceLister   corev1listers.ServiceLister
+	podLister            corev1listers.PodLister
+	secretLister         corev1listers.SecretLister
+	configMapLister      corev1listers.ConfigMapLister
+	serviceAccountLister corev1listers.ServiceAccountLister
+	serviceLister        corev1listers.ServiceLister
 }
 
 // NewResourceManager returns a ResourceManager with the internal maps initialized.
-func NewResourceManager(podLister corev1listers.PodLister, secretLister corev1listers.SecretLister, configMapLister corev1listers.ConfigMapLister, serviceLister corev1listers.ServiceLister) (*ResourceManager, error) {
+func NewResourceManager(ctx context.Context, podLister corev1listers.PodLister, secretLister corev1listers.SecretLister, configMapLister corev1listers.ConfigMapLister, serviceLister corev1listers.ServiceLister) (*ResourceManager, error) {
+	// ServiceAccounts not default in virtual-kubelet, so code taken from controller.go
+	informerResyncPeriod := time.Minute
+	kubeconfigPath := os.Getenv("KUBECONFIG")
+	client, _ := nodeutil.ClientsetFromEnv(kubeconfigPath)
+	scmInformerFactory := informers.NewSharedInformerFactoryWithOptions(
+		client,
+		informerResyncPeriod,
+	)
+	serviceAccountLister := scmInformerFactory.Core().V1().ServiceAccounts().Lister()
+	go scmInformerFactory.Start(ctx.Done())
+
 	rm := ResourceManager{
-		podLister:       podLister,
-		secretLister:    secretLister,
-		configMapLister: configMapLister,
-		serviceLister:   serviceLister,
+		podLister:            podLister,
+		secretLister:         secretLister,
+		configMapLister:      configMapLister,
+		serviceAccountLister: serviceAccountLister,
+		serviceLister:        serviceLister,
 	}
 	return &rm, nil
 }
@@ -65,6 +83,21 @@ func (rm *ResourceManager) GetConfigMap(name, namespace string) (*v1.ConfigMap, 
 // GetSecret retrieves the specified secret from Kubernetes.
 func (rm *ResourceManager) GetSecret(name, namespace string) (*v1.Secret, error) {
 	return rm.secretLister.Secrets(namespace).Get(name)
+}
+
+// GetSecrets retrieves all secrets from Kubernetes.
+func (rm *ResourceManager) GetSecrets(namespace string) ([]*v1.Secret, error) {
+	return rm.secretLister.Secrets(namespace).List(labels.Everything())
+}
+
+// GetServiceAccount retrieves the specified serviceAccount from Kubernetes.
+func (rm *ResourceManager) GetServiceAccount(name, namespace string) (*v1.ServiceAccount, error) {
+	return rm.serviceAccountLister.ServiceAccounts(namespace).Get(name)
+}
+
+// GetServiceAccounts retrieves all serviceAccounts from Kubernetes.
+func (rm *ResourceManager) GetServiceAccounts(namespace string) ([]*v1.ServiceAccount, error) {
+	return rm.serviceAccountLister.ServiceAccounts(namespace).List(labels.Everything())
 }
 
 // ListServices retrieves the list of services from Kubernetes.

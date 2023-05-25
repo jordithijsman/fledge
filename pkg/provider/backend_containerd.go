@@ -11,21 +11,22 @@ import (
 	"github.com/containerd/containerd/namespaces"
 	"github.com/containerd/containerd/oci"
 	"github.com/containerd/containerd/platforms"
+	refdocker "github.com/containerd/containerd/reference/docker"
 	gocni "github.com/containerd/go-cni"
+	"github.com/containerd/nerdctl/pkg/imgutil/dockerconfigresolver"
 	"github.com/containerd/nerdctl/pkg/labels"
 	"github.com/google/uuid"
 	"github.com/opencontainers/runtime-spec/specs-go"
 	"github.com/pkg/errors"
+	"github.com/virtual-kubelet/virtual-kubelet/node/api"
 	"gitlab.ilabt.imec.be/fledge/service/pkg/storage"
 	"io"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
-
-	"github.com/virtual-kubelet/virtual-kubelet/node/api"
-	corev1 "k8s.io/api/core/v1"
 )
 
 type ContainerdBackend struct {
@@ -35,7 +36,7 @@ type ContainerdBackend struct {
 	client  *containerd.Client
 }
 
-func NewContainerdBackend(cfg Config) (*ContainerdBackend, error) {
+func NewContainerdBackend(ctx context.Context, cfg Config) (*ContainerdBackend, error) {
 	client, err := containerd.New(
 		"/run/containerd/containerd.sock",
 		containerd.WithDefaultNamespace("fledge"),
@@ -47,8 +48,21 @@ func NewContainerdBackend(cfg Config) (*ContainerdBackend, error) {
 
 	b := &ContainerdBackend{
 		config:  cfg,
-		context: namespaces.WithNamespace(context.Background(), "fledge"),
+		context: namespaces.WithNamespace(ctx, "fledge"),
 		client:  client,
+	}
+
+	// Scrub old containerd instances
+	containers, err := b.client.Containers(b.context)
+	if err != nil {
+		log.G(b.context).Error(errors.Wrap(err, "containerd"))
+	}
+	for _, c := range containers {
+		log.G(b.context).Info(c.ID())
+		err = b.DeleteInstance(&Instance{ID: c.ID()})
+		if err != nil {
+			log.G(b.context).Error(errors.Wrap(err, "containerd"))
+		}
 	}
 
 	return b, nil
@@ -124,8 +138,18 @@ func (b *ContainerdBackend) CreateInstance(instance *Instance) error {
 		if instance.ImagePullPolicy == corev1.PullAlways {
 			b.client.ImageService().Delete(b.context, instance.Image)
 		}
-		pullOpts := []containerd.RemoteOpt{containerd.WithPullUnpack, containerd.WithSchema1Conversion}
-		image, err = b.client.Pull(b.context, instance.Image, pullOpts...)
+		named, err := refdocker.ParseDockerRef(instance.Image)
+		if err != nil {
+			return errors.Wrap(err, "containerd")
+		}
+		ref := named.String()
+		refDomain := refdocker.Domain(named)
+		resolver, err := dockerconfigresolver.New(b.context, refDomain)
+		if err != nil {
+			return errors.Wrap(err, "containerd")
+		}
+		pullOpts := []containerd.RemoteOpt{containerd.WithResolver(resolver), containerd.WithPullUnpack, containerd.WithSchema1Conversion}
+		image, err = b.client.Pull(b.context, ref, pullOpts...)
 		if err != nil {
 			return errors.Wrap(err, "containerd")
 		}
@@ -191,7 +215,15 @@ func (b *ContainerdBackend) CreateInstance(instance *Instance) error {
 	// Container.TTY (TODO)
 
 	// Pod.HostNetwork
-	if instance.HostNetwork {
+	if !instance.HostNetwork {
+		// TODO: Network access inside the container fails without this, but we do not always want host networking
+		hostNetworkSpecOpts := []oci.SpecOpts{
+			oci.WithHostNamespace(specs.NetworkNamespace),
+			oci.WithHostHostsFile,
+			oci.WithHostResolvconf,
+		}
+		specOpts = append(specOpts, hostNetworkSpecOpts...)
+	} else {
 		hostNetworkSpecOpts := []oci.SpecOpts{
 			oci.WithHostNamespace(specs.NetworkNamespace),
 			oci.WithHostHostsFile,
@@ -231,7 +263,7 @@ func (b *ContainerdBackend) CreateInstance(instance *Instance) error {
 	go func() { _, _ = io.Copy(logsFile, r) }()
 
 	// Create container IO
-	cioOpts := []cio.Opt{cio.WithStreams(nil, w, w)}
+	cioOpts := []cio.Opt{cio.WithStreams(os.Stdin, w, w)}
 	if instance.TTY {
 		cioOpts = append(cioOpts, cio.WithTerminal)
 	}
@@ -482,24 +514,99 @@ func (b *ContainerdBackend) getVolumeMountsOpts(volumeMounts []InstanceVolumeMou
 		// TODO: FC *FCVolumeSource
 		// TODO: AzureFile *AzureFileVolumeSource
 		case v.ConfigMap != nil: // TODO (ignored)
+			// TODO (ignored)
+			//for k, v := range volume.ConfigMap.Items {
+			//}
+			// Create the configmap files in tmpfs (TODO: possible insecure)
+			tempDir, err := os.MkdirTemp("", "")
+			if err != nil {
+				return nil, nil, err
+			}
+			for path, data := range v.ConfigMap.Object.Data {
+				tempPath := filepath.Join(tempDir, path)
+				if err := os.WriteFile(tempPath, []byte(data), 0644); err != nil {
+					return nil, nil, err
+				}
+				options := []string{"rbind"}
+				if vm.ReadOnly {
+					options = append(options, "ro")
+				} else {
+					options = append(options, "rw")
+				}
+				mount := specs.Mount{
+					Type:        "bind",
+					Source:      tempPath,
+					Destination: filepath.Join(vm.MountPath, path),
+					Options:     options,
+				}
+				mounts = append(mounts, mount)
+			}
 		// TODO: VsphereVolume *VsphereVirtualDiskVolumeSource
 		// TODO: Quobyte *QuobyteVolumeSource
 		// TODO: AzureDisk *AzureDiskVolumeSource
 		// TODO: PhotonPersistentDisk *PhotonPersistentDiskVolumeSource
 		case v.Projected != nil:
+			// Create directory to prepare for projection
+			path := b.volumeDir(&v)
+			if err := os.MkdirAll(path, 0755); err != nil {
+				return nil, nil, err
+			}
 			// TODO: Solve this with another virtio-fs mount?
 			for _, s := range v.Projected.Sources {
 				switch {
 				case s.Secret != nil: // TODO (ignored)
-					// TODO
+					for key, val := range s.Secret.Object.StringData {
+						file := filepath.Join(path, key)
+						// TODO: permissions
+						if err := os.WriteFile(file, []byte(val), 0755); err != nil {
+							return nil, nil, err
+						}
+					}
+					for key, val := range s.Secret.Object.Data {
+						file := filepath.Join(path, key)
+						// TODO: permissions
+						if err := os.WriteFile(file, val, 0755); err != nil {
+							return nil, nil, err
+						}
+					}
 				case s.DownwardAPI != nil: // TODO (ignored)
 					// TODO
 				case s.ConfigMap != nil: // TODO (ignored)
-					// TODO
+					for key, val := range s.ConfigMap.Object.Data {
+						file := filepath.Join(path, key)
+						// TODO: permissions
+						if err := os.WriteFile(file, []byte(val), 0755); err != nil {
+							return nil, nil, err
+						}
+					}
 				case s.ServiceAccountToken != nil: // TODO (ignored)
-					// TODO
+					for key, val := range s.ServiceAccountToken.Object.StringData {
+						file := filepath.Join(path, key)
+						// TODO: permissions
+						if err := os.WriteFile(file, []byte(val), 0755); err != nil {
+							return nil, nil, err
+						}
+					}
+					for key, val := range s.ServiceAccountToken.Object.Data {
+						file := filepath.Join(path, key)
+						// TODO: permissions
+						if err := os.WriteFile(file, val, 0755); err != nil {
+							return nil, nil, err
+						}
+					}
 				}
 			}
+			options := []string{"bind"}
+			if vm.ReadOnly {
+				options = append(options, "ro")
+			}
+			mount := specs.Mount{
+				Type:        "bind",
+				Source:      path,
+				Destination: vm.MountPath,
+				Options:     options,
+			}
+			mounts = append(mounts, mount)
 		// TODO: PortworxVolume *PortworxVolumeSource
 		// TODO: ScaleIO *ScaleIOVolumeSource
 		// TODO: StorageOS *StorageOSVolumeSource
@@ -528,4 +635,8 @@ func (b *ContainerdBackend) instanceDir(instance *Instance) string {
 
 func (b *ContainerdBackend) instanceLogsPath(instance *Instance) string {
 	return filepath.Join(b.instanceDir(instance), "current.logs")
+}
+
+func (b *ContainerdBackend) volumeDir(volume *InstanceVolume) string {
+	return storage.VolumePath(volume.ID)
 }

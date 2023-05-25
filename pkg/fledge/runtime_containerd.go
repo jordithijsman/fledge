@@ -647,7 +647,7 @@ func (cr *ContainerdRuntime) UpdateContainerStatuses(namespace string, pod *core
 	allContainersDone := true
 	noErrors := true
 
-	containerStatuses := []corev1.ContainerStatus{}
+	var containerStatuses []corev1.ContainerStatus
 	for _, cont := range pod.Spec.Containers {
 		fullName := cr.GetContainerNameAlt(namespace, pod.ObjectMeta.Name, cont.Name)
 		tuple, found := cr.containerNameTaskMapping[fullName]
