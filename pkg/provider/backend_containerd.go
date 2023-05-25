@@ -596,7 +596,7 @@ func (b *ContainerdBackend) getVolumeMountsOpts(volumeMounts []InstanceVolumeMou
 					}
 				}
 			}
-			options := []string{"bind"}
+			options := []string{"rbind"}
 			if vm.ReadOnly {
 				options = append(options, "ro")
 			}

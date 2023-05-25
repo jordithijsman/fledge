@@ -7,16 +7,17 @@ set -e
 # Get version flags
 build_version="-X 'main.buildVersion=$(git describe --tags --always --dirty="-dev")'"
 build_time="-X 'main.buildTime=$(date -u '+%Y-%m-%d-%H:%M UTC')'"
-build_flags="$build_version $build_time"
+linker_flags="$build_version $build_time"
+build_flags=""
 
 # Build for multiple architectures
 export CGO_ENABLED=0
 export GOOS=linux
-for GOARCH in arm64 amd64; do
+for GOARCH in amd64; do #arm64 amd64; do
   # Build statically linked binary
   dir="./out/${GOOS}/${GOARCH}"
   # Compile debug version
-  go build -o "${dir}/fledge.debug" -ldflags="${build_flags}" "./cmd/fledge"
+  go build -a -gcflags="${build_flags}" -o "${dir}/fledge.debug" -ldflags="${linker_flags}" "./cmd/fledge"
   # Strip binary and compile statically
-  go build -o "${dir}/fledge" -ldflags="-s -w -extldflags=-static ${build_flags}" "./cmd/fledge"
+  go build -a -gcflags="${build_flags}" -o "${dir}/fledge" -ldflags="-s -w -extldflags=-static ${linker_flags}" "./cmd/fledge"
 done

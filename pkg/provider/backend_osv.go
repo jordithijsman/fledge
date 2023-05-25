@@ -122,7 +122,7 @@ func (b *OSvBackend) CreateInstance(instance *Instance) error {
 	// Container.Env (TODO)
 	// Container.Resources (TODO)
 	memory := 1024
-	cpus := 1
+	cpus := 4
 	// Container.VolumeMounts
 	instanceExtras := &OSvExtras{
 		vmArgs: []string{

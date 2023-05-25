@@ -8,8 +8,10 @@ import (
 var rootPath string
 
 func DefaultPath() string {
-	home, _ := os.UserHomeDir()
-	return path.Join(home, ".fledge")
+	if home, _ := os.UserHomeDir(); home != "" {
+		return path.Join(home, ".fledge")
+	}
+	return "/var/lib/fledge"
 }
 
 func SetRootPath(path string) {

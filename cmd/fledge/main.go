@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -43,9 +46,9 @@ func main() {
 	// opts.Version = strings.Join([]string{k8sVersion, "vk", buildVersion}, "-")
 
 	s := provider.NewStore()
-	registerMock(ctx, s)
+	//registerMock(ctx, s)
 	registerBackend(ctx, s) // FLEDGE
-	registerBroker(ctx, s)  // FLEDGE
+	//registerBroker(ctx, s)  // FLEDGE
 
 	rootCmd := root.NewCommand(ctx, filepath.Base(os.Args[0]), s, opts)
 	rootCmd.AddCommand(version.NewCommand(buildVersion, buildTime), providers.NewCommand(s))
@@ -76,6 +79,11 @@ func main() {
 	}
 
 	patchCmd(ctx, rootCmd, s, opts) // FLEDGE
+	// Prometheus
+	http.Handle("/metrics", promhttp.Handler())
+	go func() {
+		http.ListenAndServe(":2112", nil)
+	}()
 
 	if err := rootCmd.Execute(); err != nil && errors.Cause(err) != context.Canceled {
 		log.G(ctx).Fatal(err)

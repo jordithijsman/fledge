@@ -8,7 +8,7 @@ set -e
 "./scripts/build.sh"
 
 # Copy binary
-ssh worker0 pkill fledge || true
+# ssh worker0 pkill fledge || true
 scp "default.json" "backend.json" "broker.json" "./out/$(go env GOHOSTOS)/$(go env GOHOSTARCH)/fledge" "worker0:~"
 
 # Run FLEDGE

@@ -47,8 +47,8 @@ data:
     resource-pack=
     pvp=true
     difficulty=1
-    enable-command-block=false
-    gamemode=0
+    enable-command-block=true
+    gamemode=1
     player-idle-timeout=0
     max-players=20
     max-tick-time=60000
