@@ -37,9 +37,9 @@ data:
     server-ip=
     network-compression-threshold=256
     max-build-height=256
-    spawn-npcs=true
+    spawn-npcs=false
     white-list=false
-    spawn-animals=true
+    spawn-animals=false
     hardcore=false
     snooper-enabled=true
     resource-pack-sha1=
@@ -52,7 +52,7 @@ data:
     player-idle-timeout=0
     max-players=20
     max-tick-time=60000
-    spawn-monsters=true
+    spawn-monsters=false
     generate-structures=true
     view-distance=10
     motd=A Minecraft Server
