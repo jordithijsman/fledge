@@ -36,20 +36,17 @@ spec:
           hostPort: 9940
         - containerPort: 25565
           hostPort: 25565
-        workingDir: /data
         volumeMounts:
         - name: config
           mountPath: /
-        - name: data
-          mountPath: /data
+        resources:
+          limits:
+            cpu: 1
+            memory: 1Gi
       volumes:
       - name: config
         configMap:
           name: papermc
-      - name: data
-        hostPath:
-          path: /srv/$IMAGE-$BACKEND/data
-          type: DirectoryOrCreate
       nodeSelector:
         type: virtual-kubelet
       tolerations:

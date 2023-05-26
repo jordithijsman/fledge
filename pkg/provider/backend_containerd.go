@@ -196,6 +196,16 @@ func (b *ContainerdBackend) CreateInstance(instance *Instance) error {
 	}
 	specOpts = append(specOpts, oci.WithEnv(env))
 	// Container.Resources (TODO)
+	if cpuLimitMillis := instance.Resources.Limits.Cpu().MilliValue(); cpuLimitMillis > 0 {
+		var (
+			period = uint64(100000)
+			quota  = 100 * cpuLimitMillis
+		)
+		specOpts = append(specOpts, oci.WithCPUCFS(quota, period))
+	}
+	if memoryLimit := instance.Resources.Limits.Memory().Value(); memoryLimit > 0 {
+		specOpts = append(specOpts, oci.WithMemoryLimit(uint64(memoryLimit)))
+	}
 	// Container.VolumeMounts
 	volumeMountsContainerOpts, volumeMountsSpecOpts, err := b.getVolumeMountsOpts(instance.VolumeMounts)
 	if err != nil {

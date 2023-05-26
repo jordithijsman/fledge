@@ -31,11 +31,10 @@ spec:
       - name: app
         image: gitlab.ilabt.imec.be:4567/fledge/benchmark/$IMAGE:$VERSION-$BACKEND
         imagePullPolicy: Always
-      volumes:
-      - name: data
-        hostPath:
-          path: /srv/$IMAGE-$BACKEND/data
-          type: DirectoryOrCreate
+        resources:
+          limits:
+            cpu: 1
+            memory: 1Gi
       nodeSelector:
         type: virtual-kubelet
       tolerations:

@@ -120,13 +120,20 @@ func (b *OSvBackend) CreateInstance(instance *Instance) error {
 	}
 	// Container.EnvFrom (TODO)
 	// Container.Env (TODO)
-	// Container.Resources (TODO)
-	memory := 1024
-	cpus := 4
+	// Container.Resources
+	// TODO: Container.Resources.Requests
+	vmCpus := 4 // 4 vCPUs
+	if cpuLimit := instance.Resources.Limits.Cpu().Value(); cpuLimit > 0 {
+		vmCpus = int(cpuLimit)
+	}
+	vmMemory := 1024 // 1024 MiB
+	if memoryLimit := instance.Resources.Limits.Memory().Value(); memoryLimit > 0 {
+		vmMemory = int(memoryLimit >> 20)
+	}
 	// Container.VolumeMounts
 	instanceExtras := &OSvExtras{
 		vmArgs: []string{
-			"-object", fmt.Sprintf("memory-backend-file,id=mem,size=%dM,mem-path=/dev/shm,share=on", memory),
+			"-object", fmt.Sprintf("memory-backend-file,id=mem,size=%dM,mem-path=/dev/shm,share=on", vmMemory),
 			"-numa", "node,memdev=mem",
 		},
 		vmOpts: []string{"--rootfs=zfs", "--verbose"},
@@ -171,8 +178,8 @@ func (b *OSvBackend) CreateInstance(instance *Instance) error {
 			Image:       image,
 			BackingFile: true,
 			Volumes:     []string{}, // TODO
-			Memory:      int64(memory),
-			Cpus:        cpus,
+			Memory:      int64(vmMemory),
+			Cpus:        vmCpus,
 			Networking:  networking,
 			Bridge:      "virbr0", // TODO
 			NatRules:    natRules,
