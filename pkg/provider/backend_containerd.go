@@ -388,12 +388,11 @@ func (b *ContainerdBackend) DeleteInstance(instance *Instance) error {
 }
 
 func (b *ContainerdBackend) GetInstanceLogs(instance *Instance, opts api.ContainerLogOpts) (io.ReadCloser, error) {
-	// TODO: Check opts
-	logsFile, err := os.Open(b.instanceLogsPath(instance))
+	containerLogger, err := NewContainerLogger(b.instanceLogsPath(instance), opts)
 	if err != nil {
 		return nil, errors.Wrap(err, "containerd")
 	}
-	return logsFile, nil
+	return containerLogger, nil
 }
 
 func (b *ContainerdBackend) RunInInstance(instance *Instance, cmd []string, attach api.AttachIO) error {
