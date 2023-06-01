@@ -43,6 +43,36 @@ data:
             "name": "Player 3",
             "level": 4
         },
+        {
+            "uuid": "0119c200-16b7-31a7-ab23-2546619a3b4b",
+            "name": "Player 4",
+            "level": 4
+        },
+        {
+            "uuid": "8e0fc8ca-5029-3b1d-bc53-ade4b1398101",
+            "name": "Player 5",
+            "level": 4
+        },
+        {
+            "uuid": "c6c19e55-622a-3da5-b29b-a423b717b559",
+            "name": "Player 6",
+            "level": 4
+        },
+        {
+            "uuid": "3ac50195-1d2c-36f8-b889-04916f02e85e",
+            "name": "Player 7",
+            "level": 4
+        },
+        {
+            "uuid": "4d9d45d2-bc0a-3b49-96ba-f068406f222d",
+            "name": "Player 8",
+            "level": 4
+        },
+        {
+            "uuid": "d658c4dc-298e-38a0-bd85-10bcf8698bb7",
+            "name": "Player 9",
+            "level": 4
+        },
     ]
   whitelist.json: |
     []
@@ -60,14 +90,14 @@ data:
     max-world-size=29999984
     level-type=DEFAULT
     enable-rcon=false
-    level-seed=42
+    level-seed=84579735
     force-gamemode=false
     server-ip=
     network-compression-threshold=256
     max-build-height=256
-    spawn-npcs=false
+    spawn-npcs=true
     white-list=false
-    spawn-animals=false
+    spawn-animals=true
     hardcore=false
     snooper-enabled=true
     resource-pack-sha1=
@@ -80,9 +110,12 @@ data:
     player-idle-timeout=0
     max-players=20
     max-tick-time=60000
-    spawn-monsters=false
+    spawn-monsters=true
     generate-structures=true
     use-native-transport=false
     view-distance=10
     motd=A Minecraft Server
+  bukkit.yml: |
+    settings:
+        connection-throttle: 1
 EOF
