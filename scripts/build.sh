@@ -19,5 +19,5 @@ for GOARCH in amd64; do #arm64 amd64; do
   # Compile debug version
   go build -a -gcflags="${build_flags}" -o "${dir}/fledge.debug" -ldflags="${linker_flags}" "./cmd/fledge"
   # Strip binary and compile statically
-  go build -a -gcflags="${build_flags}" -o "${dir}/fledge" -ldflags="-s -w -extldflags=-static ${linker_flags}" "./cmd/fledge"
+  go build -a -gcflags="${build_flags}" -o "${dir}/fledge" -ldflags="-s -w ${linker_flags}" "./cmd/fledge"
 done
