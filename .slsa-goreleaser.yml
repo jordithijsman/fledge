@@ -3,7 +3,7 @@ version: 1
 
 # (Optional) List of env variables used during compilation.
 env:
-  - GO111MODULE=on
+  - GOOS=linux
   - CGO_ENABLED=0
 
 # The OS to compile for. `GOOS` env variable will be set to this value.
