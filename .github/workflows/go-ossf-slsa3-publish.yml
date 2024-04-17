@@ -37,3 +37,4 @@ jobs:
       # =============================================================================================================
       private-repository: true
       upload-assets: true
+      upload-tag-name: test
