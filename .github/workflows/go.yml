@@ -28,6 +28,9 @@ jobs:
           cosign-release: main
       - name: Check install!
         run: cosign version
+      
+      - name: Check out the repository
+        uses: actions/checkout@v2
 
       - name: sign blob
         run: cosign sign-blob README.md --bundle cosign.bundle
