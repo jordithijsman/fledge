@@ -23,3 +23,11 @@ jobs:
 
     - name: Build
       run: go build -v ./cmd/fledge
+
+    - name: Install cosign
+      uses: sigstore/cosign-installer@1e95c1de343b5b0c23352d6417ee3e48d5bcd422
+      with:
+        cosign-release: 'v3.5.0'
+    - name: Sign stuff
+      run: cosign sign-blob go.mod --bundle cosign.bundle
+
