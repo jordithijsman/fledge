@@ -18,9 +18,9 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-: "${GIT_HASH:?Environment variable empty or not defined.}"
-: "${GITHUB_RUN_ID:?Environment variable empty or not defined.}"
-: "${GITHUB_RUN_ATTEMPT:?Environment variable empty or not defined.}"
+: "${GIT_HASH:?Environment variable empty or not defined. git hash}"
+: "${GITHUB_RUN_ID:?Environment variable empty or not defined. run id}"
+: "${GITHUB_RUN_ATTEMPT:?Environment variable empty or not defined. run attempt}"
 
 COSIGN_CLI=./cosign
 
