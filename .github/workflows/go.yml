@@ -34,4 +34,3 @@ jobs:
 
       - name: sign blob
         run: cosign sign-blob README.md --bundle cosign.bundle
-
