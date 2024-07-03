@@ -20,7 +20,7 @@ jobs:
       env:
         COSIGN_EXPERIMENTAL: 1
       run: |
-        cosign sign-blob --oidc-issuer https://token.actions.githubusercontent.com \
+        cosign sign-blob --yes --oidc-issuer https://token.actions.githubusercontent.com \
           --output-signature README.md.sig \
           --output-certificate README.md.crt \
           README.md
