@@ -24,6 +24,8 @@ jobs:
           --output-signature README.md.sig \
           --output-certificate README.md.crt --yes \
           README.md
+        cat README.md.crt
+        cat README.md.sig
 
     - name: Upload signed README
       uses: actions/upload-artifact@v3
