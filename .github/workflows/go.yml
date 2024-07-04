@@ -57,6 +57,6 @@ jobs:
         cosign verify-blob \
         --certificate sbom.json.crt \
         --signature sbom.json.sig \
-        --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/build-sbom-sign.yml@refs/heads/main" \
+        --certificate-identity "https://github.com/jordithijsman/fledge/.github/workflows/go.yml@refs/heads/main" \
         --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
         sbom.json
