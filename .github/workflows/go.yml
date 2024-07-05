@@ -46,14 +46,14 @@ jobs:
           
     - name: Generate .deb
       run: |
-        dpkg-deb --build ../fledge
+        dpkg-deb --build ../fledge .
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
       with:
         name: build-artifacts
         path: |
-          ../fledge.deb
+          fledge.deb
 
     - name: Verify signature (as a test)
       run: |
