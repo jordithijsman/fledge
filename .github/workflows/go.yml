@@ -54,6 +54,7 @@ jobs:
         name: build-artifacts
         path: |
           fledge_0.1_amd64.deb
+          DEBIAN/usr/local/share/fledge-sbom.bundle
 
     - name: Verify signature (as a test)
       run: |
