@@ -30,7 +30,7 @@ jobs:
     - name: Create SBOM
       run: |
         mkdir DEBIAN/usr/local/share
-        syft .DEBIAN/usr/local/bin/fledge -o spdx-json > DEBIAN/usr/local/share/fledge-sbom.json
+        syft DEBIAN/usr/local/bin/fledge -o spdx-json > DEBIAN/usr/local/share/fledge-sbom.json
 
     - name: Install Cosign
       uses: sigstore/cosign-installer@v3.5.0
