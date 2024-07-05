@@ -20,7 +20,8 @@ jobs:
 
     - name: Build Go binary
       run: |
-        go build -o fledge ./cmd/fledge
+        mkdir -p DEBIAN/usr/local/bin
+        go build -o DEBIAN/usr/local/bin/fledge ./cmd/fledge
 
     - name: Install syft
       run: |
@@ -28,7 +29,8 @@ jobs:
 
     - name: Create SBOM
       run: |
-        syft ./fledge -o spdx-json > sbom.json
+        mkdir DEBIAN/usr/local/share
+        syft .DEBIAN/usr/local/bin/fledge -o spdx-json > DEBIAN/usr/local/share/fledge-sbom.json
 
     - name: Install Cosign
       uses: sigstore/cosign-installer@v3.5.0
@@ -40,15 +42,15 @@ jobs:
         cosign sign-blob --oidc-issuer https://token.actions.githubusercontent.com \
           --bundle fledge_sbom.bundle \
           --yes \
-          sbom.json
+          DEBIAN/usr/local/share/fledge-sbom.json
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
       with:
         name: build-artifacts
         path: |
-          myapp
-          sbom.json
+          DEBIAN/usr/local/bin/fledge
+          DEBIAN/usr/local/share/fledge-sbom.json
           sbom.json.sig
           sbom.json.crt
 
@@ -58,4 +60,4 @@ jobs:
         --bundle fledge_sbom.bundle \
         --certificate-identity "https://github.com/jordithijsman/fledge/.github/workflows/go.yml@refs/heads/main" \
         --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-        sbom.json
+        DEBIAN/usr/local/share/fledge-sbom.json
