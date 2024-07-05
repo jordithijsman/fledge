@@ -38,8 +38,8 @@ jobs:
         COSIGN_EXPERIMENTAL: 1
       run: |
         cosign sign-blob --oidc-issuer https://token.actions.githubusercontent.com \
-          --output-signature sbom.json.sig \
-          --output-certificate sbom.json.crt --yes \
+          --bundle fledge_sbom.bundle \
+          --yes \
           sbom.json
 
     - name: Upload artifacts
@@ -55,8 +55,7 @@ jobs:
     - name: Verify signature (as a test)
       run: |
         cosign verify-blob \
-        --certificate sbom.json.crt \
-        --signature sbom.json.sig \
+        --bundle fledge_sbom.bundle \
         --certificate-identity "https://github.com/jordithijsman/fledge/.github/workflows/go.yml@refs/heads/main" \
         --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
         sbom.json
