@@ -1,0 +1,7 @@
+Package: FLEDGE
+Version: 0.1
+Section: misc
+Priority: optional
+Architecture: amd64
+Maintainer: Jordi THijsman jordi.thijsman@ugent.be
+Description: Fledge installer, includes SBoM

@@ -1,0 +1,20 @@
+# /lib/systemd/system/feather.service
+[Unit]
+Description=feather virtual kubelet
+After=network.target local-fs.target
+
+[Service]
+Type=simple
+WorkingDirectory=/etc/fledge
+EnvironmentFile=/etc/fledge/env.conf
+ExecStart=/usr/local/bin/feather --log-level=${LOG_LEVEL} --config=${CONFIG} --provider=${PROVIDER}
+Restart=always
+RestartSec=5
+LimitNPROC=infinity
+LimitCORE=infinity
+LimitNOFILE=infinity
+TasksMax=infinity
+OOMScoreAdjust=-999
+
+[Install]
+WantedBy=multi-user.target
