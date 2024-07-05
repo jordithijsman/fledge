@@ -43,6 +43,11 @@ jobs:
           --bundle fledge_sbom.bundle \
           --yes \
           DEBIAN/usr/local/share/fledge-sbom.json
+          
+    - name: Generate .deb
+      run: |
+        ls 
+        ls ../
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
@@ -51,8 +56,6 @@ jobs:
         path: |
           DEBIAN/usr/local/bin/fledge
           DEBIAN/usr/local/share/fledge-sbom.json
-          sbom.json.sig
-          sbom.json.crt
 
     - name: Verify signature (as a test)
       run: |
