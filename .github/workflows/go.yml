@@ -40,27 +40,25 @@ jobs:
         COSIGN_EXPERIMENTAL: 1
       run: |
         cosign sign-blob --oidc-issuer https://token.actions.githubusercontent.com \
-          --bundle fledge_sbom.bundle \
+          --bundle DEBIAN/usr/local/share/fledge-sbom.bundle \
           --yes \
           DEBIAN/usr/local/share/fledge-sbom.json
           
     - name: Generate .deb
       run: |
-        ls 
-        ls ../
+        dpkg-deb --build ../fledge
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v3
       with:
         name: build-artifacts
         path: |
-          DEBIAN/usr/local/bin/fledge
-          DEBIAN/usr/local/share/fledge-sbom.json
+          ../fledge.deb
 
     - name: Verify signature (as a test)
       run: |
         cosign verify-blob \
-        --bundle fledge_sbom.bundle \
+        --bundle DEBIAN/user/local/share/fledge-sbom.bundle \
         --certificate-identity "https://github.com/jordithijsman/fledge/.github/workflows/go.yml@refs/heads/main" \
         --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
         DEBIAN/usr/local/share/fledge-sbom.json
