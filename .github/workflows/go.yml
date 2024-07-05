@@ -53,12 +53,12 @@ jobs:
       with:
         name: build-artifacts
         path: |
-          fledge.deb
+          fledge_0.1_amd64.deb
 
     - name: Verify signature (as a test)
       run: |
         cosign verify-blob \
-        --bundle DEBIAN/user/local/share/fledge-sbom.bundle \
+        --bundle DEBIAN/usr/local/share/fledge-sbom.bundle \
         --certificate-identity "https://github.com/jordithijsman/fledge/.github/workflows/go.yml@refs/heads/main" \
         --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
         DEBIAN/usr/local/share/fledge-sbom.json
