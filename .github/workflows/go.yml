@@ -33,7 +33,7 @@ jobs:
         syft DEBIAN/usr/local/bin/fledge -o spdx-json > DEBIAN/usr/local/share/fledge-sbom.json
 
     - name: Install Cosign
-      uses: sigstore/cosign-installer@v3.5.0
+      uses: sigstore/cosign-installer@v3.8.1
 
     - name: Sign SBOM
       env:
